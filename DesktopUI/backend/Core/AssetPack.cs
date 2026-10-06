@@ -33,6 +33,9 @@ namespace NpcSkinMaker
         public string ResourceUuid { get; set; } = Guid.NewGuid().ToString();
         public string BehaviorModuleUuid { get; set; } = Guid.NewGuid().ToString();
         public string ResourceModuleUuid { get; set; } = Guid.NewGuid().ToString();
+        // Derive a stable, pack-specific filename from the persistent resource UUID.
+        [JsonIgnore]
+        public string ConfigFileName => "asset_" + Guid.Parse(ResourceUuid).ToString("N") + ".json";
         public List<AssetEntry> Entries { get; set; } = new List<AssetEntry>();
 
         public static AssetPack Create(string kind) => new AssetPack

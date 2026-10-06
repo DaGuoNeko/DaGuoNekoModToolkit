@@ -71,11 +71,17 @@ test("resource exports contain both packs, stable UUIDs, Python registration and
   const tx2 = await backend.call("textures.export", { directory: f.directory });
   const sx = await backend.call("sounds.export", { directory: f.directory });
   python(
-    String.raw`import sys,json,zipfile,ast
+    String.raw`import sys,json,zipfile,ast,re
 archives=[zipfile.ZipFile(p) for p in sys.argv[1:4]]
 for i,z in enumerate(archives):
- names=z.namelist();configs=[n for n in names if n.endswith('/modconfigs/assets.json')];assert len(configs)==1
+ names=z.namelist();configs=[n for n in names if '/modconfigs/' in n and n.endswith('.json')];assert len(configs)==1
+ assert re.fullmatch(r'asset_[0-9a-f]{32}\.json',configs[0].split('/')[-1]),configs
  data=json.loads(z.read(configs[0]));pack=data['pack'];provider=pack['ProviderId'];kind=data['kind']
+ assert set(n.split('/')[0] for n in names)=={provider+'B',provider+'R'},names
+ assert provider+'B/entities/' in names,'behavior entities directory missing'
+ assert any(n.startswith(provider+'R/textures/') for n in names),'resource textures directory missing'
+ if kind=='sounds':assert provider+'R/textures/' in names,'empty textures directory missing'
+ assert not any(n.endswith('.txt') for n in names),'instructions must not be included'
  bp=json.loads(z.read(provider+'B/manifest.json'));rp=json.loads(z.read(provider+'R/manifest.json'))
  assert bp['modules'][0]['type']=='data' and rp['modules'][0]['type']=='resources'
  assert bp['dependencies'][0]['uuid']==rp['header']['uuid']==pack['ResourceUuid']
@@ -95,6 +101,8 @@ for i,z in enumerate(archives):
    raw=z.read(name);assert not raw.startswith(b'\xef\xbb\xbf');raw.decode('utf-8')
   if name.endswith('.py'):assert b'u"' not in z.read(name) and b"u'" not in z.read(name)
 assert json.loads(archives[0].read(next(n for n in archives[0].namelist() if n.endswith('/manifest.json'))))==json.loads(archives[1].read(next(n for n in archives[1].namelist() if n.endswith('/manifest.json'))))
+config_names=[next(n.split('/')[-1] for n in z.namelist() if '/modconfigs/' in n and n.endswith('.json')) for z in archives]
+assert config_names[0]==config_names[1] and config_names[0]!=config_names[2]
 `,
     tx.path,
     tx2.path,
@@ -115,6 +123,40 @@ assert json.loads(archives[0].read(next(n for n in archives[0].namelist() if n.e
   const sounds = (await backend.call("sounds.import", { path: sx.path })).state;
   assert.deepEqual(await fs.readFile(sounds.sounds[0].Path), ogg());
   assert.equal(sounds.sounds[0].Volume, 0.4);
+});
+
+test("metadata import is identified by format, supports legacy names, and rejects ambiguous configs", async (t) => {
+  const { f, backend } = await setup(t);
+  await backend.call("textures.add", { items: [texture(f)] });
+  const before = await backend.call("state");
+  const exported = await backend.call("textures.export", { directory: f.directory });
+  const legacy = path.join(f.directory, "legacy-assets.zip");
+  const ambiguous = path.join(f.directory, "ambiguous-assets.zip");
+  python(String.raw`import sys,zipfile,json
+with zipfile.ZipFile(sys.argv[1]) as source:
+ configs=[n for n in source.namelist() if '/modconfigs/' in n and n.endswith('.json')]
+ assert len(configs)==1
+ original=configs[0];directory=original.rsplit('/',1)[0]
+ with zipfile.ZipFile(sys.argv[2],'w') as target:
+  for name in source.namelist():target.writestr(directory+'/assets.json' if name==original else name,source.read(name))
+  target.writestr(directory+'/unrelated.json',json.dumps({'format':{'another':'tool'}}))
+  target.writestr(directory+'/other.json','[]')
+ with zipfile.ZipFile(sys.argv[3],'w') as target:
+  for name in source.namelist():target.writestr(name,source.read(name))
+  target.writestr(directory+'/duplicate.json',source.read(original))
+`, exported.path, legacy, ambiguous);
+  const restored = (await backend.call("textures.import", { path: legacy })).state;
+  assert.equal(restored.texturePack.ResourceUuid, before.texturePack.ResourceUuid);
+  assert.equal(restored.texturePack.ProviderId, before.texturePack.ProviderId);
+  const reexported = await backend.call("textures.export", { directory: f.directory });
+  python(String.raw`import sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as first,zipfile.ZipFile(sys.argv[2]) as second:
+ configs=lambda z:[n for n in z.namelist() if '/modconfigs/' in n and n.endswith('.json')]
+ assert configs(first)==configs(second)
+ assert not any(n.endswith('/assets.json') for n in second.namelist())
+`, exported.path, reexported.path);
+  await assert.rejects(backend.call("textures.import", { path: ambiguous }), /包含一份/);
+  assert.deepEqual(await backend.call("state"), restored);
 });
 
 test("invalid resource edits, ZIPs and project data do not replace current lists", async (t) => {
@@ -163,7 +205,7 @@ test("invalid resource edits, ZIPs and project data do not replace current lists
 with zipfile.ZipFile(sys.argv[1]) as source,zipfile.ZipFile(sys.argv[2],'w') as target:
  for name in source.namelist():
   data=source.read(name)
-  if name.endswith('/modconfigs/assets.json'):
+  if '/modconfigs/' in name and name.endswith('.json'):
    doc=json.loads(data);doc['pack']['Entries'][0]['Path']='../escape.png';data=json.dumps(doc).encode()
   target.writestr(name,data)`,
     exported.path,
@@ -334,7 +376,7 @@ for package in sys.argv[2:]:
   config=next(n for n in z.namelist() if n.endswith('/config.py'));moduleName=config.split('/')[-2]
   module=types.ModuleType(moduleName);module.__path__=[];sys.modules[moduleName]=module
   data=types.ModuleType(moduleName+'.config');exec(compile(z.read(config),config,'exec'),data.__dict__);sys.modules[moduleName+'.config']=data
-  metadata=json.loads(z.read(next(n for n in z.namelist() if n.endswith('/modconfigs/assets.json'))))['pack']['Entries']
+  metadata=json.loads(z.read(next(n for n in z.namelist() if '/modconfigs/' in n and n.endswith('.json'))))['pack']['Entries']
   for source,item in zip(metadata,data.ASSETS):
    assert source['Name'].encode('utf-8')==item['name']
    assert [tag.encode('utf-8') for tag in source['SearchTags']]==item['search_tags']

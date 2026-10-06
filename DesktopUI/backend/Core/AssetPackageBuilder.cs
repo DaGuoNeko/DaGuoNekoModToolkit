@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -88,6 +89,10 @@ namespace NpcSkinMaker
             try
             {
                 string bp = Path.Combine(root, pack.ProviderId + "B"), rp = Path.Combine(root, pack.ProviderId + "R");
+                // Pack recognition requires these roots even for resource-only extensions.
+                // Empty directories are retained as directory entries in the ZIP.
+                Directory.CreateDirectory(Path.Combine(bp, "entities"));
+                Directory.CreateDirectory(Path.Combine(rp, "textures"));
                 ExportText.Write(Path.Combine(bp, "manifest.json"), Manifest(pack, true).ToString());
                 ExportText.Write(Path.Combine(rp, "manifest.json"), Manifest(pack, false).ToString());
                 string module = pack.ProviderId + "Scripts";
@@ -123,15 +128,10 @@ namespace NpcSkinMaker
                 var metadata = JObject.FromObject(pack);
                 foreach (JObject item in metadata["Entries"])
                     item["Path"] = ResourcePath(pack, kind, item.ToObject<AssetEntry>()) + (kind == "textures" ? ".png" : ".ogg");
-                ExportText.Write(Path.Combine(rp, "modconfigs", "assets.json"), new JObject
+                ExportText.Write(Path.Combine(rp, "modconfigs", pack.ConfigFileName), new JObject
                 {
                     ["format"] = "DaGuoNekoAssetPack", ["version"] = 1, ["kind"] = kind, ["pack"] = metadata
                 }.ToString());
-                ExportText.Write(Path.Combine(root, "使用说明.txt"),
-                    "请同时安装行为包和资源包，并加载大果喵前置组件。进入游戏后自动注册到公共贴图/音效库。\n" +
-                    "包标识: " + pack.ProviderId + "\n需要修改资源时，请在工具箱导入此 ZIP，或打开保存的工程。\n" +
-                    "重新导出会保留资源 ID 和 UUID；发布更新前请在拓展包设置中提高版本，两份 manifest 会同步更新。\n" +
-                    "不要在同一地图同时加载同一拓展包的新旧两份。素材版权由制作者负责。\n");
                 ZipFile.CreateFromDirectory(root, pending, CompressionLevel.Optimal, false);
                 File.Move(pending, output);
                 return output;
@@ -146,14 +146,22 @@ namespace NpcSkinMaker
         public static AssetPack Import(string path, string kind, string tempRoot)
         {
             string root = WorkspaceFiles.Extract(path, tempRoot);
-            var candidates = Directory.GetFiles(root, "assets.json", SearchOption.AllDirectories)
-                .Where(p => new DirectoryInfo(Path.GetDirectoryName(p)).Name == "modconfigs").ToList();
+            // Identify our metadata by format, not filename; legacy assets.json still imports.
+            var candidates = new List<Tuple<string, JObject>>();
+            foreach (string configPath in Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
+                .Where(p => new DirectoryInfo(Path.GetDirectoryName(p)).Name == "modconfigs"))
+            {
+                var data = JToken.Parse(ExportText.Read(configPath)) as JObject;
+                if (data != null && data["format"]?.Type == JTokenType.String &&
+                    (string)data["format"] == "DaGuoNekoAssetPack")
+                    candidates.Add(Tuple.Create(configPath, data));
+            }
             if (candidates.Count != 1) throw new InvalidDataException("ZIP 必须包含一份工具箱资源拓展配置");
-            var document = JObject.Parse(ExportText.Read(candidates[0]));
+            var document = candidates[0].Item2;
             if ((string)document["format"] != "DaGuoNekoAssetPack" || (int?)document["version"] != 1 || (string)document["kind"] != kind)
                 throw new InvalidDataException("拓展包类型或版本不匹配");
             var pack = document["pack"]?.ToObject<AssetPack>() ?? throw new InvalidDataException("资源拓展配置缺失");
-            string rp = Directory.GetParent(Path.GetDirectoryName(candidates[0])).FullName;
+            string rp = Directory.GetParent(Path.GetDirectoryName(candidates[0].Item1)).FullName;
             foreach (var item in pack.Entries) item.Path = WorkspaceFiles.ResolveInside(rp, item.Path);
             pack.Validate(kind);
             return pack;
