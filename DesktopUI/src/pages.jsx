@@ -23,6 +23,31 @@ export function SettingsPage({ settings, saveSettings, report }) {
   return (
     <>
       <Intro title="设置" subtitle="让工具箱符合你的工作习惯。" />
+      <Section title="功能显示">
+        <div className="setting-row">
+          <div>
+            <h3 id="developer-tools-label">显示模组开发者工具</h3>
+            <p id="developer-tools-description">
+              在侧栏显示 3D 文字、开发者工具箱、MCStudio 项目和存档全局配置。
+            </p>
+          </div>
+          <button
+            type="button"
+            className="setting-switch"
+            role="switch"
+            aria-checked={settings.ShowModDeveloperTools}
+            aria-labelledby="developer-tools-label"
+            aria-describedby="developer-tools-description"
+            onClick={() =>
+              saveSettings({
+                ShowModDeveloperTools: !settings.ShowModDeveloperTools,
+              }).catch(report)
+            }
+          >
+            <span />
+          </button>
+        </div>
+      </Section>
       <Section title="外观" description="界面字体统一为 Microsoft YaHei UI。">
         <div className="appearance-options">
           {[
@@ -106,8 +131,8 @@ export function SettingsPage({ settings, saveSettings, report }) {
       </Section>
       <Section title="当前会话">
         <p className="muted">
-          皮肤与模型列表在切换页面时保留，退出应用后清空。需要保留的内容请先导出
-          ZIP。
+          皮肤、模型、贴图和音效列表在切换页面时保留，退出应用后清空。
+          需要保留的内容请先保存工程，或导出 ZIP。
         </p>
       </Section>
     </>
@@ -717,7 +742,7 @@ export function ConfigsPage({ settings, saveSettings, report }) {
 export function AboutPage({ version }) {
   return (
     <>
-      <Intro title="关于工具箱" subtitle="为你的 NPC 创作，留出更多时间。" />
+      <Intro title="关于工具箱" subtitle="为你的模组创作，留出更多时间。" />
       <div className="about-brand">
         <div className="brand-mark large">
           <Icon name="cube" size={32} />
@@ -730,17 +755,17 @@ export function AboutPage({ version }) {
           <div>
             <span className="step">01</span>
             <h3>准备素材</h3>
-            <p>选择 PNG 皮肤，或准备模型、贴图与动画文件。</p>
+            <p>准备 PNG 皮肤、模型与动画，或公共贴图和 OGG 音效。</p>
           </div>
           <div>
             <span className="step">02</span>
             <h3>整理与配置</h3>
-            <p>编辑名称、作者、皮肤变体与模型动画。</p>
+            <p>编辑名称、分类、资源 ID，或皮肤变体与模型动画。</p>
           </div>
           <div>
             <span className="step">03</span>
             <h3>导出 ZIP</h3>
-            <p>生成行为包与资源包，配合 customNPC 模组使用。</p>
+            <p>生成行为包与资源包，配合自定义NPC或大果喵前置组件使用。</p>
           </div>
         </div>
       </Section>

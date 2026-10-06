@@ -45,6 +45,7 @@ const studio = new Studio(
   process.env.MCNPC_ROAMING_DATA || process.env.APPDATA,
 );
 const allowedImages = new Set();
+const allowedAudio = new Set();
 const allowedOpen = new Set();
 let win,
   backend,
@@ -61,7 +62,14 @@ function approveOpen(value) {
 }
 function rememberState(state) {
   if (!state) return;
-  hasEntries = state.skins.length + state.models.length > 0;
+  hasEntries =
+    state.skins.length +
+      state.models.length +
+      state.textures.length +
+      state.sounds.length >
+    0;
+  for (const entry of state.textures) approveImage(entry.Path);
+  for (const entry of state.sounds) allowedAudio.add(key(entry.Path));
   for (const skin of state.skins) approveImage(skin.TexturePath);
   for (const model of state.models) {
     approveImage(model.PreviewImagePath);
@@ -87,6 +95,7 @@ function applySettings() {
 const filters = {
   skin: [{ name: "PNG 皮肤", extensions: ["png"] }],
   texture: [{ name: "PNG 贴图", extensions: ["png"] }],
+  sound: [{ name: "OGG Vorbis 音效", extensions: ["ogg"] }],
   geo: [{ name: "模型 JSON", extensions: ["json"] }],
   animation: [{ name: "动画 JSON", extensions: ["json"] }],
   zip: [{ name: "ZIP 拓展包", extensions: ["zip"] }],
@@ -107,7 +116,10 @@ async function pick(kind, multiple = false) {
     filters: filters[kind],
     properties: multiple ? ["openFile", "multiSelections"] : ["openFile"],
   });
-  for (const file of result.filePaths) approveImage(file);
+  for (const file of result.filePaths) {
+    approveImage(file);
+    if (kind === "sound") allowedAudio.add(key(file));
+  }
   return result.canceled ? [] : result.filePaths;
 }
 async function directory(defaultPath = "") {
@@ -212,6 +224,11 @@ const coreMethods = new Set([
   "models.clear",
   "models.move",
   "models.import",
+  ...["textures", "sounds"].flatMap((kind) =>
+    ["add", "save", "settings", "delete", "clear", "import"].map(
+      (action) => `${kind}.${action}`,
+    ),
+  ),
 ]);
 async function dispatch(method, args) {
   if (coreMethods.has(method)) {
@@ -258,7 +275,7 @@ async function dispatch(method, args) {
     case "files.pick":
       return pick(args.kind, !!args.multiple);
     case "clipboard.write": {
-      clipboard.writeText(oneLine(args.text, "皮肤 ID"));
+      clipboard.writeText(oneLine(args.text, "资源 ID"));
       return true;
     }
     case "files.directory":
@@ -278,7 +295,7 @@ async function dispatch(method, args) {
     case "project.save": {
       const selected = await dialog.showSaveDialog(win, {
         title: "保存工程",
-        defaultPath: "NPC拓展工程.dgnproject",
+        defaultPath: "模组拓展工程.dgnproject",
         filters: filters.project,
       });
       if (selected.canceled || !selected.filePath) return { canceled: true };
@@ -288,6 +305,20 @@ async function dispatch(method, args) {
       } finally {
         busy--;
       }
+    }
+    case "audio.read": {
+      if (
+        typeof args.path !== "string" ||
+        !allowedAudio.has(key(args.path)) ||
+        !/\.ogg$/i.test(args.path)
+      )
+        throw new Error("音效未由用户选择或格式不支持");
+      const stat = await fs.stat(args.path);
+      if (stat.size > 64 * 1024 * 1024) throw new Error("音效过大");
+      return (
+        "data:audio/ogg;base64," +
+        (await fs.readFile(args.path)).toString("base64")
+      );
     }
     case "image.read": {
       if (typeof args.path !== "string" || !allowedImages.has(key(args.path)))
@@ -302,7 +333,7 @@ async function dispatch(method, args) {
       return image.toDataURL();
     }
     case "export": {
-      if (!["skins", "models"].includes(args.kind))
+      if (!["skins", "models", "textures", "sounds"].includes(args.kind))
         throw new Error("无效的导出类型");
       const output = await directory(settings.value.LastOutputDir);
       if (!output) return { canceled: true };

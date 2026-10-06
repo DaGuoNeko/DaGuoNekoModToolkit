@@ -15,11 +15,17 @@ const methods = new Set([
   "models.clear",
   "models.move",
   "models.import",
+  ...["textures", "sounds"].flatMap((kind) =>
+    ["add", "save", "settings", "delete", "clear", "import"].map(
+      (action) => `${kind}.${action}`,
+    ),
+  ),
   "project.open",
   "project.save",
   "files.pick",
   "files.directory",
   "image.read",
+  "audio.read",
   "export",
   "settings.update",
   "studio.list",

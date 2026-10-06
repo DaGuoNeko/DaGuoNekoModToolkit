@@ -1181,6 +1181,31 @@ td.check-cell {
   color: var(--muted);
   margin-top: 4px;
 }
+.setting-switch {
+  width: 40px;
+  height: 24px;
+  margin-left: 20px;
+  padding: 3px;
+  flex-shrink: 0;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  background: var(--selected);
+}
+.setting-switch span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.setting-switch[aria-checked="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+.setting-switch[aria-checked="true"] span {
+  transform: translateX(16px);
+  background: var(--primary-text);
+}
 .swatches {
   display: flex;
   gap: 8px;
@@ -1387,4 +1412,11 @@ td.check-cell {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+.asset-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  margin: auto;
+  object-fit: contain;
 }

@@ -21,6 +21,39 @@ const { fixture, removeFixture } = require("./fixtures.cjs");
     await page
       .getByRole("heading", { name: "皮肤拓展", exact: true })
       .waitFor();
+    const sidebar = page.locator(".sidebar");
+    const tools = ["3D 文字", "开发者工具箱", "MCStudio 项目", "存档全局配置"];
+    async function expectTools(visible) {
+      for (const name of tools)
+        await sidebar
+          .getByRole("button", { name, exact: true })
+          .waitFor({ state: visible ? "visible" : "hidden" });
+      assert.equal(
+        await sidebar.getByText("工具", { exact: true }).count(),
+        visible ? 1 : 0,
+      );
+    }
+    async function toggleTools() {
+      await sidebar.getByRole("button", { name: "设置", exact: true }).click();
+      await page.getByRole("switch", { name: "显示模组开发者工具" }).click();
+    }
+    await expectTools(false);
+    await toggleTools();
+    await expectTools(true);
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .waitFor();
+    await expectTools(true);
+    await toggleTools();
+    await expectTools(false);
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .waitFor();
+    await expectTools(false);
+    await toggleTools();
+    await expectTools(true);
     await app.evaluate(({ shell }) => {
       globalThis.openedExternal = [];
       globalThis.failExternal = false;
@@ -88,7 +121,7 @@ const { fixture, removeFixture } = require("./fixtures.cjs");
       1,
     );
     console.log(
-      "PASS system-browser dispatch, fixed URL, error/retry UI; no embedded browser window created",
+      "PASS developer tools default hidden, toggle and reload persistence; system-browser dispatch, fixed URL, error/retry UI",
     );
   } finally {
     if (app) await app.close();

@@ -12,6 +12,7 @@ const { atomicJson } = require("../electron/services.cjs");
     download = path.join(f.directory, "download");
   await atomicJson(path.join(f.directory, "profile", "settings.json"), {
     AppearanceMode: "Light",
+    ShowModDeveloperTools: true,
   });
   await atomicJson(path.join(local, "Netease/MCStudio/config/app/app.conf"), {
     X64EditorPath: path.join(download, "MCX64Editor/editor.exe"),

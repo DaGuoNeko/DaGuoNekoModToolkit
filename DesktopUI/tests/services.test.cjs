@@ -26,14 +26,26 @@ test("legacy preferences migrate without custom fonts; queued updates preserve u
   assert.equal(settings.value.AppearanceMode, "Dark");
   assert.equal(settings.value.LastOutputDir, "C:\\example");
   assert.equal(settings.value.FontFamilyName, undefined);
+  assert.equal(settings.value.ShowModDeveloperTools, false);
   await Promise.all([
     settings.update({ ThemeHue: 140 }),
     settings.update({ SidebarCollapsed: true }),
+    settings.update({ ShowModDeveloperTools: true }),
   ]);
   assert.equal(settings.value.ThemeHue, 140);
   assert.equal(settings.value.SidebarCollapsed, true);
   const saved = await readJson(settings.file);
   assert.equal(saved.FontFamilyName, undefined);
+  assert.equal(
+    (await new Settings(f.directory).load()).ShowModDeveloperTools,
+    true,
+  );
+  await assert.rejects(settings.update({ ShowModDeveloperTools: "false" }));
+  await settings.update({ ShowModDeveloperTools: false });
+  assert.equal(
+    (await new Settings(f.directory).load()).ShowModDeveloperTools,
+    false,
+  );
   await assert.rejects(settings.update({ FontFamilyName: "Arial" }));
   await settings.update({ AppearanceMode: "Light" });
   assert.equal(settings.value.AppearanceMode, "Light");

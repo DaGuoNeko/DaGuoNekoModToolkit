@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState, useId } from "react";
 
 const paths = {
+  sound: (
+    <>
+      <path d="M4 10h4l5-5v14l-5-5H4zM16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12" />
+    </>
+  ),
   skin: (
     <>
       <circle cx="12" cy="8" r="3" />

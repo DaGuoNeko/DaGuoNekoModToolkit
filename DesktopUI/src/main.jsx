@@ -13,6 +13,7 @@ import {
 } from "./ui.jsx";
 import { SkinEditor, SkinEdit, ModelEditor } from "./editors.jsx";
 import { SkinPreview, skinId } from "./skin-preview.jsx";
+import { AssetPage } from "./asset-page.jsx";
 import {
   SettingsPage,
   ToolsPage,
@@ -27,16 +28,24 @@ import "./styles.css";
 const nav = [
   { id: "skins", label: "皮肤拓展", icon: "skin", group: "创作" },
   { id: "models", label: "模型拓展", icon: "cube" },
+  { id: "textures", label: "贴图拓展", icon: "image" },
+  { id: "sounds", label: "音效拓展", icon: "sound" },
   { id: "text", label: "3D 文字", icon: "text", group: "工具" },
   { id: "tools", label: "开发者工具箱", icon: "tools" },
   { id: "studio", label: "MCStudio 项目", icon: "folder" },
   { id: "configs", label: "存档全局配置", icon: "settings" },
 ];
 const api = (method, args) => window.toolkit.call(method, args);
+const developerPages = ["text", "tools", "studio", "configs", "tests"];
 function App() {
   const [loaded, setLoaded] = useState(false),
     [fatal, setFatal] = useState("");
-  const [state, setState] = useState({ skins: [], models: [] }),
+  const [state, setState] = useState({
+      skins: [],
+      models: [],
+      textures: [],
+      sounds: [],
+    }),
     [settings, setSettings] = useState(null),
     [version, setVersion] = useState("");
   const [skinTargets, setSkinTargets] = useState([]);
@@ -114,6 +123,8 @@ function App() {
   async function saveSettings(patch) {
     const value = await api("settings.update", patch);
     setSettings(value);
+    if (!value.ShowModDeveloperTools && developerPages.includes(page))
+      setPage("skins");
     return value;
   }
   async function run(method, args, label = "正在处理…") {
@@ -195,10 +206,16 @@ function App() {
       const result = await run("project.open", {}, "正在打开工程…");
       if (!result.canceled) toast("工程已恢复");
     };
-    if (state.skins.length || state.models.length)
+    if (
+      state.skins.length ||
+      state.models.length ||
+      state.textures.length ||
+      state.sounds.length
+    )
       setConfirmation({
         title: "打开工程？",
-        detail: "打开成功后将替换皮肤和模型列表。请先保存需要保留的编辑。",
+        detail:
+          "打开成功后将替换皮肤、模型、贴图和音效列表。请先保存需要保留的编辑。",
         action,
       });
     else action().catch(report);
@@ -307,33 +324,41 @@ function App() {
           />
         </div>
         <nav aria-label="主要导航">
-          {nav.map((item) => (
-            <React.Fragment key={item.id}>
-              {item.group && !collapsed && (
-                <div className="nav-label">{item.group}</div>
-              )}
-              <button
-                className={`nav-item ${page === item.id || (page === "tests" && item.id === "studio") ? "active" : ""}`}
-                aria-current={page === item.id ? "page" : undefined}
-                title={item.label}
-                aria-label={item.label}
-                onClick={() => setPage(item.id)}
-              >
-                <Icon name={item.icon} />
-                {!collapsed && (
-                  <>
-                    <span>{item.label}</span>
-                    {["skins", "models"].includes(item.id) &&
-                      state[item.id].length > 0 && (
-                        <span className="nav-count">
-                          {state[item.id].length}
-                        </span>
-                      )}
-                  </>
+          {nav
+            .filter(
+              (item) =>
+                settings.ShowModDeveloperTools ||
+                !developerPages.includes(item.id),
+            )
+            .map((item) => (
+              <React.Fragment key={item.id}>
+                {item.group && !collapsed && (
+                  <div className="nav-label">{item.group}</div>
                 )}
-              </button>
-            </React.Fragment>
-          ))}
+                <button
+                  className={`nav-item ${page === item.id || (page === "tests" && item.id === "studio") ? "active" : ""}`}
+                  aria-current={page === item.id ? "page" : undefined}
+                  title={item.label}
+                  aria-label={item.label}
+                  onClick={() => setPage(item.id)}
+                >
+                  <Icon name={item.icon} />
+                  {!collapsed && (
+                    <>
+                      <span>{item.label}</span>
+                      {["skins", "models", "textures", "sounds"].includes(
+                        item.id,
+                      ) &&
+                        state[item.id].length > 0 && (
+                          <span className="nav-count">
+                            {state[item.id].length}
+                          </span>
+                        )}
+                    </>
+                  )}
+                </button>
+              </React.Fragment>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           {[
@@ -705,6 +730,20 @@ function App() {
                   settings={settings}
                   saveSettings={saveSettings}
                   report={report}
+                />
+              )}
+              {["textures", "sounds"].includes(page) && (
+                <AssetPage
+                  key={page}
+                  kind={page}
+                  state={state}
+                  run={run}
+                  report={report}
+                  toast={toast}
+                  confirm={setConfirmation}
+                  openProject={openProject}
+                  saveProject={saveProject}
+                  exportPackage={exportPackage}
                 />
               )}
               {page === "tools" && (

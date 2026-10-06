@@ -14,6 +14,8 @@ namespace NpcSkinMaker
     {
         private static readonly SkinManager Skins = new SkinManager();
         private static readonly ModelManager Models = new ModelManager();
+        private static AssetPack Textures = AssetPack.Create("textures");
+        private static AssetPack Sounds = AssetPack.Create("sounds");
         private static readonly string TempRoot = Path.Combine(Path.GetTempPath(), "mcnpc-desktop-" + Guid.NewGuid().ToString("N"));
 
         private static void Main()
@@ -64,7 +66,12 @@ namespace NpcSkinMaker
             }
         }
 
-        private static object State() => new { skins = Skins.GetAllSkins(), models = Models.GetAllModels() };
+        private static object State() => new
+        {
+            skins = Skins.GetAllSkins(), models = Models.GetAllModels(),
+            textures = Textures.Entries, sounds = Sounds.Entries,
+            texturePack = Textures, soundPack = Sounds
+        };
 
         private static List<int> Indices(JObject args, int count)
         {
@@ -76,6 +83,8 @@ namespace NpcSkinMaker
 
         private static object Execute(string method, JObject args)
         {
+            if (method.StartsWith("textures.") || method.StartsWith("sounds."))
+                return ExecuteAssets(method, args);
             switch (method)
             {
                 case "state": return State();
@@ -147,17 +156,64 @@ namespace NpcSkinMaker
                     Models.GetAllModels().AddRange(importedModels);
                     return new { state = State() };
                 case "project.save":
-                    WorkspaceFiles.SaveProject((string)args["path"], Skins.GetAllSkins(), Models.GetAllModels());
+                    WorkspaceFiles.SaveProject((string)args["path"], Skins.GetAllSkins(), Models.GetAllModels(), Textures, Sounds);
                     return new { path = (string)args["path"] };
                 case "project.open":
-                    WorkspaceFiles.LoadProject((string)args["path"], TempRoot, out var projectSkins, out var projectModels);
+                    WorkspaceFiles.LoadProject((string)args["path"], TempRoot, out var projectSkins, out var projectModels,
+                        out var projectTextures, out var projectSounds);
                     Skins.ClearSkins();
                     Models.Clear();
                     Skins.GetAllSkins().AddRange(projectSkins);
                     Models.GetAllModels().AddRange(projectModels);
+                    Textures = projectTextures;
+                    Sounds = projectSounds;
                     return new { state = State() };
                 default: throw new ArgumentException("不支持的操作: " + method);
             }
+        }
+
+        private static object ExecuteAssets(string method, JObject args)
+        {
+            var parts = method.Split('.');
+            string kind = parts[0];
+            var current = kind == "textures" ? Textures : Sounds;
+            // Validate a complete candidate before changing authoritative session data.
+            var candidate = JObject.FromObject(current).ToObject<AssetPack>();
+            switch (parts[1])
+            {
+                case "settings":
+                    candidate.Name = ((string)args["name"] ?? candidate.Name).Trim();
+                    candidate.Author = ((string)args["author"] ?? candidate.Author).Trim();
+                    candidate.ProviderId = ((string)args["providerId"] ?? candidate.ProviderId).Trim();
+                    candidate.Version = ((string)args["version"] ?? candidate.Version).Trim();
+                    break;
+                case "add":
+                    var entries = args["items"]?.ToObject<List<AssetEntry>>() ?? throw new ArgumentException("缺少资源列表");
+                    foreach (var item in entries)
+                    {
+                        if (string.IsNullOrWhiteSpace(item.Id)) item.Id = (kind == "textures" ? "tex_" : "snd_") + Guid.NewGuid().ToString("N").Substring(0, 8);
+                        candidate.Entries.Add(item);
+                    }
+                    break;
+                case "save":
+                    int index = (int)args["index"];
+                    if (index < 0 || index >= candidate.Entries.Count) throw new ArgumentException("资源索引无效");
+                    var edited = args["entry"]?.ToObject<AssetEntry>() ?? throw new ArgumentException("缺少资源配置");
+                    candidate.Entries[index] = edited;
+                    break;
+                case "delete":
+                    foreach (int i in Indices(args, candidate.Entries.Count)) candidate.Entries.RemoveAt(i);
+                    break;
+                case "clear": candidate.Entries.Clear(); break;
+                case "import": candidate = AssetPackageBuilder.Import((string)args["path"], kind, TempRoot); break;
+                case "export": return new { path = AssetPackageBuilder.Build(current, kind, (string)args["directory"]) };
+                default: throw new ArgumentException("不支持的资源操作: " + method);
+            }
+            candidate.Validate(kind);
+            if (candidate.ProviderId == (kind == "textures" ? Sounds.ProviderId : Textures.ProviderId))
+                throw new ArgumentException("贴图包与音效包不能使用相同包标识");
+            if (kind == "textures") Textures = candidate; else Sounds = candidate;
+            return new { state = State() };
         }
 
         private static void ImportSkins(string path)

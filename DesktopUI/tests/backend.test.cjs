@@ -18,7 +18,9 @@ test("real C# skin/model packaging, transactional import and UTF-8 contract", as
     await exited;
     await removeFixture(f.directory);
   });
-  assert.deepEqual(await backend.call("state"), { skins: [], models: [] });
+  const initial = await backend.call("state");
+  for (const kind of ["skins", "models", "textures", "sounds"])
+    assert.deepEqual(initial[kind], []);
   const add = await backend.call("skins.add", {
     items: [
       { path: f.texture, name: "森林守卫", author: "测试作者" },

@@ -13,6 +13,7 @@
     "package": "npm run build && node scripts/package.mjs",
     "test": "npm run build && node --test tests/*.test.cjs",
     "test:ui": "npm run build && node tests/ui-smoke.cjs",
+    "test:assets": "npm run build && node tests/asset-ui.cjs",
     "test:web": "npm run build:web && node tests/web-tool-ui.cjs",
     "test:select": "npm run build:web && node tests/select-ui.cjs",
     "test:window": "npm run build:web && node tests/window-ui.cjs"

@@ -11,6 +11,7 @@ const { atomicJson } = require("../electron/services.cjs");
   await atomicJson(path.join(profile, "settings.json"), {
     FontFamilyName: "Microsoft Yi Baiti",
     AppearanceMode: "Light",
+    ShowModDeveloperTools: true,
   });
   await fs.mkdir("test-results", { recursive: true });
   let app;
