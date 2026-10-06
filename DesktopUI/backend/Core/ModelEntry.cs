@@ -29,6 +29,12 @@ namespace NpcSkinMaker
         public string AttackAnimation { get; set; }
         public string DeathAnimation { get; set; }
         public bool EnableAttachables { get; set; }
+        // Imported legacy identifiers are retained; new entries cannot replace built-in NPCs.
+        public bool FromImport { get; set; }
+        public string OriginalIdentifier { get; set; }
+        public string ImportedBehaviorPath { get; set; }
+        public string ImportedClientEntityPath { get; set; }
+        public List<ModelResource> AdditionalResources { get; set; } = new List<ModelResource>();
 
         public ModelEntry()
         {
@@ -77,6 +83,9 @@ namespace NpcSkinMaker
             item["identifier"] = Identifier;
             item["l"] = SourceLabel ?? "原版";
             item["animation_list"] = new List<string>(AnimationList);
+            item["_toolkit"] = new Dictionary<string, object> {
+                { "texture_names", Textures.ConvertAll(t => t.Name ?? "") }
+            };
             if (SkinList != null && SkinList.Count > 0)
             {
                 var skins = new List<Dictionary<string, object>>();
@@ -116,6 +125,11 @@ namespace NpcSkinMaker
                 error = "自定义名称无需包含 _dlcnpc 后缀";
                 return false;
             }
+            if ((!FromImport || Identifier != OriginalIdentifier) && NpcCompatibility.IsReserved(Identifier))
+            {
+                error = "模型名称与 NPC 内置模型冲突，请更换自定义名称: " + CustomName;
+                return false;
+            }
             if (string.IsNullOrEmpty(GeoPath) || !File.Exists(GeoPath))
             {
                 error = "模型 .geo.json 文件必须选择且文件存在";
@@ -123,7 +137,7 @@ namespace NpcSkinMaker
             }
             try
             {
-                string geoJson = File.ReadAllText(GeoPath, System.Text.Encoding.UTF8);
+                string geoJson = ExportText.Read(GeoPath);
                 JObject.Parse(geoJson);
                 if (!Regex.IsMatch(geoJson, @"""identifier""\s*:\s*""geometry\.[^""]+"""))
                 {
@@ -179,7 +193,7 @@ namespace NpcSkinMaker
                     }
                     try
                     {
-                        var animationJson = JObject.Parse(File.ReadAllText(animationFile, System.Text.Encoding.UTF8));
+                        var animationJson = JObject.Parse(ExportText.Read(animationFile));
                         if (!(animationJson["animations"] is JObject))
                         {
                             error = "动画 JSON 缺少 animations 对象: " + animationFile;
@@ -248,6 +262,21 @@ namespace NpcSkinMaker
                 }
             }
             error = "";
+            foreach (string importedPath in new[] { ImportedBehaviorPath, ImportedClientEntityPath })
+                if (!string.IsNullOrEmpty(importedPath) && !File.Exists(importedPath))
+                { error = "已导入的实体配置不存在"; return false; }
+            foreach (var resource in AdditionalResources ?? new List<ModelResource>())
+            {
+                try { WorkspaceFiles.ResolveInside(System.IO.Path.GetTempPath(), resource.RelativePath); }
+                catch (InvalidDataException e) { error = e.Message; return false; }
+                if (!File.Exists(resource.Path)) { error = "模型附加资源不存在: " + resource.RelativePath; return false; }
+            }
+            try { NpcCompatibility.ValidateAnimations(new[] { this }); }
+            catch (Exception e) when (e is IOException || e is Newtonsoft.Json.JsonException)
+            {
+                error = e.Message;
+                return false;
+            }
             return true;
         }
     }
@@ -269,6 +298,12 @@ namespace NpcSkinMaker
             Name = name ?? "";
             Path = path ?? "";
         }
+    }
+
+    public class ModelResource
+    {
+        public string RelativePath { get; set; }
+        public string Path { get; set; }
     }
 
     /// <summary>模型皮肤变体项</summary>

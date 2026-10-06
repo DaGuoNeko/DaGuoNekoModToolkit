@@ -9,6 +9,7 @@ const {
   protocol,
   net,
   session,
+  clipboard,
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
@@ -89,6 +90,7 @@ const filters = {
   geo: [{ name: "模型 JSON", extensions: ["json"] }],
   animation: [{ name: "动画 JSON", extensions: ["json"] }],
   zip: [{ name: "ZIP 拓展包", extensions: ["zip"] }],
+  project: [{ name: "工具箱工程", extensions: ["dgnproject"] }],
   python: [{ name: "Python 脚本", extensions: ["py"] }],
   executable: [{ name: "程序", extensions: ["exe"] }],
   background: [
@@ -209,6 +211,7 @@ const coreMethods = new Set([
   "models.delete",
   "models.clear",
   "models.move",
+  "models.import",
 ]);
 async function dispatch(method, args) {
   if (coreMethods.has(method)) {
@@ -249,12 +252,43 @@ async function dispatch(method, args) {
         settings: settings.value,
         dark: nativeTheme.shouldUseDarkColors,
         version: app.getVersion(),
+        skinTargets: await backend.call("skin.targets"),
       };
     }
     case "files.pick":
       return pick(args.kind, !!args.multiple);
+    case "clipboard.write": {
+      clipboard.writeText(oneLine(args.text, "皮肤 ID"));
+      return true;
+    }
     case "files.directory":
       return directory(settings.value.LastOutputDir);
+    case "project.open": {
+      const paths = await pick("project");
+      if (!paths.length) return { canceled: true };
+      busy++;
+      try {
+        const result = await backend.call("project.open", { path: paths[0] });
+        rememberState(result.state);
+        return result;
+      } finally {
+        busy--;
+      }
+    }
+    case "project.save": {
+      const selected = await dialog.showSaveDialog(win, {
+        title: "保存工程",
+        defaultPath: "NPC拓展工程.dgnproject",
+        filters: filters.project,
+      });
+      if (selected.canceled || !selected.filePath) return { canceled: true };
+      busy++;
+      try {
+        return await backend.call("project.save", { path: selected.filePath });
+      } finally {
+        busy--;
+      }
+    }
     case "image.read": {
       if (typeof args.path !== "string" || !allowedImages.has(key(args.path)))
         throw new Error("图片未由用户选择");
@@ -480,7 +514,8 @@ else {
             message: busy
               ? "任务仍在运行，确定退出？"
               : "列表保存在当前会话中，关闭后将清空。",
-            detail: "请先导出需要保留的拓展包。",
+            detail:
+              "请先保存工程，或导出需要保留的拓展包。工程会同时保存列表和资源文件。",
             buttons: ["继续编辑", "退出"],
             defaultId: 0,
             cancelId: 0,

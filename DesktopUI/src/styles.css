@@ -701,6 +701,30 @@ td.check-cell {
   font-size: 11px;
   word-break: break-all;
 }
+.skin-id-cell span {
+  user-select: text;
+}
+.skin-id-cell .button {
+  margin-left: 5px;
+}
+.skin-3d-host {
+  position: relative;
+  height: 380px;
+  width: 100%;
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.skin-3d-host canvas {
+  display: block;
+}
+.preview-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
 .muted {
   color: var(--muted);
 }

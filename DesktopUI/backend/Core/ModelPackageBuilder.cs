@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -16,12 +16,12 @@ namespace NpcSkinMaker
     /// </summary>
     public class ModelPackageBuilder
     {
-        private const string TEMPLATE_IDENTIFIER = "customnpc:id_dlcnpc";
         private const string ANIM_PASS = "animation.customnpc.default.pass";
         private const string ANIM_DEATH = "animation.customnpc.default.death";
 
         private readonly string _templateSource;
         private readonly bool _isZip;
+        private readonly Dictionary<string, string> _copiedResourceSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public ModelPackageBuilder(string templateSource)
         {
@@ -38,6 +38,7 @@ namespace NpcSkinMaker
                 if (!Directory.Exists(outputDir))
                     throw new Exception("输出目录不存在: " + outputDir);
                 ValidateModels(models);
+                _copiedResourceSources.Clear();
 
                 string packageName = Utils.GeneratePackageName("m");
                 string configFileName = Utils.GenerateConfigFileName();
@@ -62,7 +63,7 @@ namespace NpcSkinMaker
                     string rTmplDir = Path.Combine(workDir, "ModName_npc_modelsR", "entity", "ex_dlcnpc");
 
                     // 通用回退模板
-                    string bFallbackText = File.ReadAllText(Path.Combine(bTmplDir, "id_dlcnpc.json"), System.Text.Encoding.UTF8);
+                    string bFallbackText = ExportText.Read(Path.Combine(bTmplDir, "id_dlcnpc.json"));
                     var rFallbackData = ReadJson(Path.Combine(rTmplDir, "id_dlcnpc.entity.json"));
 
                     // 预读所有模板
@@ -127,6 +128,8 @@ namespace NpcSkinMaker
                     Logger.Info("[模型] 清理模板占位文件完成");
 
                     // ⑧ 打 ZIP
+                    ExportText.NormalizeDirectory(bPath);
+                    ExportText.NormalizeDirectory(rPath);
                     string zipPath = Path.Combine(outputDir, packageName + ".zip");
                     CreateZip(workDir, zipPath, packageName);
                     Logger.Info("[模型] 打包完成: " + zipPath);
@@ -164,11 +167,29 @@ namespace NpcSkinMaker
             Dictionary<string, JObject> rTemplates, JObject rFallbackData)
         {
             string entityId = entry.GetEntityId();
+            foreach (var resource in entry.AdditionalResources ?? new List<ModelResource>())
+            {
+                string destination = WorkspaceFiles.ResolveInside(rPath, resource.RelativePath);
+                if (_copiedResourceSources.TryGetValue(destination, out string previous))
+                {
+                    if (!Utils.FilesEqual(previous, resource.Path))
+                        throw new InvalidDataException("附加资源内容冲突: " + resource.RelativePath);
+                    continue;
+                }
+                _copiedResourceSources[destination] = resource.Path;
+                if (ExportText.IsText(destination))
+                    Utils.WriteTextFile(destination, ExportText.Read(resource.Path));
+                else Utils.CopyFile(resource.Path, destination);
+            }
             Logger.Info("[模型] 处理模型: " + entry.DisplayName + " (" + entityId + ")");
 
             // 选择模板
             string bTmplText = bTemplates.ContainsKey(entityId) ? bTemplates[entityId] : bFallbackText;
             JObject rTmplData = rTemplates.ContainsKey(entityId) ? rTemplates[entityId] : rFallbackData;
+            if (!string.IsNullOrEmpty(entry.ImportedBehaviorPath))
+                bTmplText = ExportText.Read(entry.ImportedBehaviorPath);
+            if (!string.IsNullOrEmpty(entry.ImportedClientEntityPath))
+                rTmplData = ReadJson(entry.ImportedClientEntityPath);
             if (bTemplates.ContainsKey(entityId))
                 Logger.Info("[模型]   使用专属行为包模板: " + entityId + ".json");
             else
@@ -215,8 +236,8 @@ namespace NpcSkinMaker
                 foreach (string animationFile in entry.AnimationFiles)
                 {
                     string animationName = Path.GetFileName(animationFile);
-                    string animationContent = File.ReadAllText(animationFile, System.Text.Encoding.UTF8);
-                    Utils.WriteTextFile(Path.Combine(animationDir, animationName), animationContent);
+                    string animationContent = ExportText.Read(animationFile);
+                    Utils.WriteTextFile(Path.Combine(animationDir, entityId, animationName), animationContent);
                     Logger.Info("[模型]   写入动画文件: " + animationName);
                 }
             }
@@ -226,7 +247,7 @@ namespace NpcSkinMaker
             if (!Directory.Exists(geoDir)) Directory.CreateDirectory(geoDir);
             string dstGeo = Path.Combine(geoDir, entityId + ".geo.json");
 
-            string geoContent = File.ReadAllText(entry.GeoPath, System.Text.Encoding.UTF8);
+            string geoContent = ExportText.Read(entry.GeoPath);
             // 替换 geometry identifier（只替换第一个）
             var regex = new Regex(@"""identifier""\s*:\s*""geometry\.[^""]+""");
             geoContent = regex.Replace(geoContent, "\"identifier\": \"geometry." + entityId + "\"", 1);
@@ -236,15 +257,19 @@ namespace NpcSkinMaker
 
         private void BuildBehaviorEntity(ModelEntry entry, string entityId, string bPath, string tmplText)
         {
-            string content = tmplText;
-
-            // 替换 identifier
-            content = content.Replace(
-                "\"identifier\": \"" + TEMPLATE_IDENTIFIER + "\"",
-                "\"identifier\": \"" + entry.Identifier + "\"");
-
-            // 替换 collision_box
-            content = ReplaceCollisionBox(content, entry.CollisionWidth, entry.CollisionHeight);
+            var entity = JObject.Parse(tmplText);
+            var data = entity["minecraft:entity"];
+            data["description"]["identifier"] = entry.Identifier;
+            var properties = data["description"]["properties"] as JObject ?? new JObject();
+            foreach (var property in NpcCompatibility.Properties.Properties())
+                properties[property.Name] = property.Value;
+            data["description"]["properties"] = properties;
+            var groups = data["component_groups"] as JObject ?? new JObject();
+            if (!(groups["collision_box"] is JObject)) groups["collision_box"] = new JObject();
+            groups["collision_box"]["minecraft:collision_box"] = new JObject(
+                new JProperty("width", entry.CollisionWidth), new JProperty("height", entry.CollisionHeight));
+            data["component_groups"] = groups;
+            string content = entity.ToString(Formatting.Indented);
 
             string dstDir = Path.Combine(bPath, "entities", "ex_dlcnpc");
             if (!Directory.Exists(dstDir)) Directory.CreateDirectory(dstDir);
@@ -258,6 +283,12 @@ namespace NpcSkinMaker
 
             // 标识符
             desc["identifier"] = entry.Identifier;
+            desc["materials"] = new JObject(
+                new JProperty("default", "entity_alphatest"),
+                new JProperty("default_customnpc_alpha", "customnpc_tint_entity_alphatest"),
+                new JProperty("outline", "netease_entity_alphatest_outline"),
+                new JProperty("outline_through_wall", "customnpc_entity_alphatest_outline_through_wall"),
+                new JProperty("outline_mask_through_wall", "customnpc_entity_alphatest_outline_mask_through_wall"));
 
             // 几何模型
             var geo = new JObject();
@@ -272,10 +303,15 @@ namespace NpcSkinMaker
                 textures[key] = "textures/entity/npc_dlcnpc/" + entityId + "/texture_" + i;
             }
             desc["textures"] = textures;
+            textures["outline_mask"] = "textures/blocks/white_concrete";
 
             // 渲染控制器
             var rcArr = new JArray();
             rcArr.Add("controller.render." + entityId);
+            rcArr.Add(new JObject(new JProperty("controller.render.customnpc_outline_mask_through_wall",
+                "query.property('customnpc:outline_enabled') && query.property('customnpc:outline_through_wall')")));
+            rcArr.Add(new JObject(new JProperty("controller.render.customnpc_outline",
+                "query.property('customnpc:outline_enabled')")));
             desc["render_controllers"] = rcArr;
 
             // 动画
@@ -312,16 +348,18 @@ namespace NpcSkinMaker
             var controller = new JObject();
             controller["arrays"] = new JObject(
                 new JProperty("textures", new JObject(
-                    new JProperty("Array.skinid", textureArray))));
+                    new JProperty("Array.skinid", textureArray))),
+                new JProperty("materials", new JObject(new JProperty("Array.customnpc_alpha_default",
+                    new JArray("Material.default", "Material.default_customnpc_alpha")))));
             controller["geometry"] = "Geometry.default";
             controller["materials"] = new JArray(
-                new JObject(new JProperty("*", "Material.default")));
-            controller["textures"] = new JArray("Array.skinid[query.skin_id]");
+                new JObject(new JProperty("*", "Array.customnpc_alpha_default[query.property('customnpc:render_effect_enabled')]")));
+            controller["textures"] = new JArray("Array.skinid[math.clamp(query.skin_id, 0, " + (entry.Textures.Count - 1) + ")]");
             controller["overlay_color"] = new JObject(
-                new JProperty("r", "query.is_sheared <= 0 ? this : 1.0"),
-                new JProperty("g", "query.is_sheared <= 0 ? this : 0"),
-                new JProperty("b", "query.is_sheared <= 0 ? this : 0"),
-                new JProperty("a", "query.is_sheared <= 0 ? this : 0.5"));
+                new JProperty("r", "query.is_sheared > 0 ? 1.0 : query.property('customnpc:render_color_r')"),
+                new JProperty("g", "query.is_sheared > 0 ? 0.0 : query.property('customnpc:render_color_g')"),
+                new JProperty("b", "query.is_sheared > 0 ? 0.0 : query.property('customnpc:render_color_b')"),
+                new JProperty("a", "query.is_sheared > 0 ? 0.5 : (query.property('customnpc:render_color_enabled') == 1.0 ? 0.5 : 0.0)"));
 
             var controllers = new JObject();
             controllers["controller.render." + entityId] = controller;
@@ -337,6 +375,7 @@ namespace NpcSkinMaker
         /// <summary>在建立工作目录前校验全包模型，防止标识符或动画文件相互覆盖。</summary>
         private void ValidateModels(List<ModelEntry> models)
         {
+            NpcCompatibility.ValidateAnimations(models);
             var identifiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var animationFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < models.Count; i++)
@@ -471,7 +510,7 @@ namespace NpcSkinMaker
 
         private JObject ReadJson(string path)
         {
-            string json = File.ReadAllText(path, System.Text.Encoding.UTF8);
+            string json = ExportText.Read(path);
             return JObject.Parse(json);
         }
 
@@ -493,7 +532,7 @@ namespace NpcSkinMaker
             foreach (string f in Directory.GetFiles(tmplDir, "*.json"))
             {
                 string entityId = Path.GetFileNameWithoutExtension(f);
-                try { result[entityId] = File.ReadAllText(f, System.Text.Encoding.UTF8); }
+                try { result[entityId] = ExportText.Read(f); }
                 catch { }
             }
             return result;
@@ -511,7 +550,7 @@ namespace NpcSkinMaker
                     entityId = entityId.Substring(0, entityId.Length - 7);
                 try
                 {
-                    string json = File.ReadAllText(f, System.Text.Encoding.UTF8);
+                    string json = ExportText.Read(f);
                     result[entityId] = JObject.Parse(json);
                 }
                 catch { }
@@ -519,23 +558,5 @@ namespace NpcSkinMaker
             return result;
         }
 
-        // ===== collision_box 替换 =====
-
-        private string ReplaceCollisionBox(string content, double width, double height)
-        {
-            // 正则匹配 collision_box 区块
-            string pattern = @"(""collision_box""\s*:\s*\{[^}]*?""minecraft:collision_box""\s*:\s*\{[^}]*?""width""\s*:\s*)([0-9.]+)([^}]*?""height""\s*:\s*)([0-9.]+)";
-            string replaced = Regex.Replace(content, pattern,
-                m => m.Groups[1].Value + width.ToString(CultureInfo.InvariantCulture) + m.Groups[3].Value + height.ToString(CultureInfo.InvariantCulture),
-                RegexOptions.Singleline);
-
-            if (replaced == content)
-            {
-                // 宽松模式：直接文本替换
-                replaced = content.Replace("\"width\": 0.4", "\"width\": " + width.ToString(CultureInfo.InvariantCulture))
-                                  .Replace("\"height\": 0.4", "\"height\": " + height.ToString(CultureInfo.InvariantCulture));
-            }
-            return replaced;
-        }
     }
 }

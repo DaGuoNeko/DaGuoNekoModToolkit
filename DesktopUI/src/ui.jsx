@@ -38,6 +38,12 @@ const paths = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  copy: (
+    <>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V4H4v12h4" />
+    </>
+  ),
   close: <path d="m6 6 12 12M18 6 6 18" />,
   search: (
     <>

@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "skinview3d": "3.4.2"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",

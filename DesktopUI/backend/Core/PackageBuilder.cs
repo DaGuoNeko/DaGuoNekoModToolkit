@@ -33,6 +33,7 @@ namespace NpcSkinMaker
 
                 if (!Directory.Exists(outputDir))
                     throw new Exception("输出目录不存在: " + outputDir);
+                WorkspaceFiles.ValidateSkins(skins);
 
                 // 生成唯一包名
                 string packageName = Utils.GeneratePackageName("s");
@@ -113,6 +114,8 @@ namespace NpcSkinMaker
 
                     // 创建 ZIP 文件
                     Logger.Info("创建 ZIP 文件...");
+                    ExportText.NormalizeDirectory(behaviorPackPath);
+                    ExportText.NormalizeDirectory(resourcePackPath);
                     string zipPath = Path.Combine(outputDir, packageName + ".zip");
                     CreateZip(workDir, zipPath, packageName);
                     Logger.Info("ZIP 文件创建成功: " + zipPath);
@@ -174,14 +177,20 @@ namespace NpcSkinMaker
                 }
                 else
                 {
-                    string skinId = Utils.GenerateUniqueShortUid(usedIds, "s", Utils.MaxGeneratedNameLength);
-                    item["ID"] = skinId;
+                    if (string.IsNullOrWhiteSpace(skin.Id) || !usedIds.Add(skin.Id))
+                        throw new Exception("皮肤 ID 为空或重复: " + skin.Id);
+                    item["ID"] = skin.Id;
                     item["name"] = skin.Name;
                     item["by"] = skin.Author;
                     item["texture"] = "textures/entity/npc_dlcskin/" + skin.Id;
                 }
 
                 npcskinlist.Add(item);
+                if (!string.IsNullOrEmpty(skin.TargetIdentifier))
+                {
+                    item["target_identifier"] = skin.TargetIdentifier;
+                    item["texture_slot"] = skin.TextureSlot;
+                }
             }
 
             var result = new Dictionary<string, object>();
@@ -204,19 +213,23 @@ namespace NpcSkinMaker
                     if (string.IsNullOrEmpty(skin.TexturePath))
                     {
                         Logger.Warning("皮肤 " + idx + " 没有贴图路径");
-                        continue;
+                        throw new Exception("皮肤 " + idx + " 没有贴图路径");
                     }
 
                     if (!File.Exists(skin.TexturePath))
                         throw new Exception("贴图文件不存在: " + skin.TexturePath);
 
                     string pngError;
-                    if (!Utils.ValidateSkinPngFile(skin.TexturePath, out pngError))
+                    if (!SkinTargetPolicy.ValidateTexture(skin.TexturePath, skin.TargetIdentifier, out pngError))
                         throw new Exception("皮肤贴图无效: " + pngError);
 
                     string dstPath = GetTextureDestinationPath(skin, resourcePackPath, textureDir);
                     if (!destinations.Add(dstPath))
-                        throw new Exception("多个皮肤指向了同一个贴图路径: " + dstPath);
+                    {
+                        if (!Utils.FilesEqual(skin.TexturePath, dstPath))
+                            throw new Exception("不同贴图内容指向了同一个路径: " + dstPath);
+                        continue;
+                    }
                     Logger.Info("复制贴图 " + (idx + 1) + "/" + skins.Count + ": " + skin.TexturePath + " -> " + dstPath);
                     Utils.CopyFile(skin.TexturePath, dstPath);
                 }
@@ -327,7 +340,7 @@ namespace NpcSkinMaker
         {
             try
             {
-                string json = File.ReadAllText(path, System.Text.Encoding.UTF8);
+                string json = ExportText.Read(path);
                 return JsonConvert.DeserializeObject(json);
             }
             catch (Exception e)

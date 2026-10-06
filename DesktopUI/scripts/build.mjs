@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdir, copyFile, rm } from "node:fs/promises";
+import { mkdir, copyFile, rm, readFile, writeFile } from "node:fs/promises";
 const sourcemap = process.argv.includes("--sourcemap");
 await mkdir("dist", { recursive: true });
 await build({
@@ -20,3 +20,10 @@ if (!sourcemap) {
 }
 await copyFile("src/index.html", "dist/index.html");
 await copyFile("assets/icon.ico", "dist/icon.ico");
+const notices = await Promise.all(
+  ["skinview3d", "skinview-utils", "three"].map(
+    async (name) =>
+      `${name}\n${await readFile(`node_modules/${name}/LICENSE`, "utf8")}\n`,
+  ),
+);
+await writeFile("dist/THIRD_PARTY_LICENSES.txt", notices.join("\n"));

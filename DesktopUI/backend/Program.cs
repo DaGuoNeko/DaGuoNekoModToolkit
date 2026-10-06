@@ -79,6 +79,7 @@ namespace NpcSkinMaker
             switch (method)
             {
                 case "state": return State();
+                case "skin.targets": return NpcCompatibility.SkinTargets;
                 case "skins.add":
                     var items = args["items"] as JArray ?? throw new ArgumentException("缺少皮肤列表");
                     var added = 0;
@@ -87,7 +88,8 @@ namespace NpcSkinMaker
                     {
                         try
                         {
-                            Skins.AddSkin((string)item["path"], (string)item["name"], (string)item["author"]);
+                            Skins.AddSkin((string)item["path"], (string)item["name"], (string)item["author"],
+                                (string)item["targetIdentifier"], (string)item["textureSlot"]);
                             added++;
                         }
                         catch (Exception e) { errors.Add(Path.GetFileName((string)item["path"]) + ": " + e.Message); }
@@ -101,7 +103,8 @@ namespace NpcSkinMaker
                     foreach (int i in selected)
                     {
                         SkinData skin = Skins.GetSkin(i);
-                        Skins.UpdateSkin(i, name.Length == 0 ? skin.Name : name, author.Length == 0 ? skin.Author : author);
+                        Skins.UpdateSkin(i, name.Length == 0 ? skin.Name : name, author.Length == 0 ? skin.Author : author,
+                            (string)args["targetIdentifier"], (string)args["textureSlot"]);
                     }
                     return new { state = State() };
                 case "skins.delete":
@@ -138,6 +141,21 @@ namespace NpcSkinMaker
                     return new { state = State() };
                 case "models.export":
                     return new { path = new ModelPackageBuilder(Path.Combine(TempRoot, "template_models.zip")).BuildPackage(Models.GetAllModels(), (string)args["directory"]) };
+                case "models.import":
+                    var importedModels = ModelPackageImport.Load((string)args["path"], TempRoot);
+                    Models.Clear();
+                    Models.GetAllModels().AddRange(importedModels);
+                    return new { state = State() };
+                case "project.save":
+                    WorkspaceFiles.SaveProject((string)args["path"], Skins.GetAllSkins(), Models.GetAllModels());
+                    return new { path = (string)args["path"] };
+                case "project.open":
+                    WorkspaceFiles.LoadProject((string)args["path"], TempRoot, out var projectSkins, out var projectModels);
+                    Skins.ClearSkins();
+                    Models.Clear();
+                    Skins.GetAllSkins().AddRange(projectSkins);
+                    Models.GetAllModels().AddRange(projectModels);
+                    return new { state = State() };
                 default: throw new ArgumentException("不支持的操作: " + method);
             }
         }
@@ -154,16 +172,16 @@ namespace NpcSkinMaker
                 foreach (var entry in archive.Entries.Where(e => e.FullName.Replace('\\', '/').Contains("/modconfigs/") && e.FullName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
                 {
                     if (entry.Length > 8 * 1024 * 1024) continue;
-                    using (var reader = new StreamReader(entry.Open(), Encoding.UTF8))
+                    using (var stream = entry.Open())
                     {
-                        var value = JObject.Parse(reader.ReadToEnd());
+                        var value = JObject.Parse(ExportText.Read(stream, entry.FullName));
                         if (value["npcskinlist"] is JArray) configs.Add(entry);
                     }
                 }
                 if (configs.Count != 1) throw new InvalidDataException("ZIP 必须包含且仅包含一份 npcskinlist 皮肤配置");
                 var config = configs[0];
                 JObject data;
-                using (var reader = new StreamReader(config.Open(), Encoding.UTF8)) data = JObject.Parse(reader.ReadToEnd());
+                using (var stream = config.Open()) data = JObject.Parse(ExportText.Read(stream, config.FullName));
                 var list = (JArray)data["npcskinlist"];
                 if (list.Any(item => !(item is JObject))) throw new InvalidDataException("皮肤配置条目必须是对象");
                 candidate.ImportFromDict(data.ToObject<Dictionary<string, object>>());
@@ -181,7 +199,7 @@ namespace NpcSkinMaker
                     if (matches.Count != 1 || matches[0].Length > 64 * 1024 * 1024) throw new InvalidDataException("贴图缺失、重复或过大: " + texture);
                     skin.TexturePath = Path.Combine(importDirectory, Guid.NewGuid().ToString("N") + ".png");
                     matches[0].ExtractToFile(skin.TexturePath);
-                    if (!Utils.ValidateSkinPngFile(skin.TexturePath, out string error)) throw new InvalidDataException(error);
+                    if (!SkinTargetPolicy.ValidateTexture(skin.TexturePath, skin.TargetIdentifier, out string error)) throw new InvalidDataException(error);
                 }
             }
             Skins.ClearSkins();

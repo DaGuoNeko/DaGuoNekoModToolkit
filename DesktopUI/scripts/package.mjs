@@ -2,7 +2,14 @@ import { packager } from "@electron/packager";
 import { existsSync } from "node:fs";
 import { readdir, unlink } from "node:fs/promises";
 import path from "node:path";
-const outputRoot = path.resolve("release");
+const releaseRoot = path.resolve("release");
+const outputArgument = process.argv.find((arg) => arg.startsWith("--output="));
+const outputRoot = outputArgument
+  ? path.resolve(outputArgument.slice(9))
+  : releaseRoot;
+const outputRelative = path.relative(releaseRoot, outputRoot);
+if (outputRelative.startsWith("..") || path.isAbsolute(outputRelative))
+  throw new Error("Package output must remain inside release/");
 const electronZipDir = existsSync(
   "node_modules/.cache/electron-v44.5.1-win32-x64.zip",
 )
@@ -35,7 +42,7 @@ const outputs = await packager({
     /^\/node_modules/,
     /\.map$/,
   ],
-  extraResource: ["backend/bin/Release/net48"],
+  extraResource: ["backend/bin/Release/net48", "dist/THIRD_PARTY_LICENSES.txt"],
 });
 for (const output of outputs) {
   const directory = path.resolve(output);

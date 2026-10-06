@@ -12,6 +12,7 @@ import {
   LocalImage,
 } from "./ui.jsx";
 import { SkinEditor, SkinEdit, ModelEditor } from "./editors.jsx";
+import { SkinPreview, skinId } from "./skin-preview.jsx";
 import {
   SettingsPage,
   ToolsPage,
@@ -38,6 +39,7 @@ function App() {
   const [state, setState] = useState({ skins: [], models: [] }),
     [settings, setSettings] = useState(null),
     [version, setVersion] = useState("");
+  const [skinTargets, setSkinTargets] = useState([]);
   const [page, setPage] = useState("skins"),
     [busy, setBusy] = useState(""),
     [search, setSearch] = useState(""),
@@ -62,6 +64,7 @@ function App() {
       setState(data.state);
       setSettings(data.settings);
       setVersion(data.version);
+      setSkinTargets(data.skinTargets);
       document.documentElement.dataset.theme = data.dark ? "dark" : "light";
       setDrafts({
         mod: {
@@ -160,6 +163,46 @@ function App() {
       report(e);
     }
   }
+  async function importModels() {
+    try {
+      const paths = await api("files.pick", { kind: "zip" });
+      if (!paths.length) return;
+      const action = async () => {
+        await run("models.import", { path: paths[0] }, "正在导入模型拓展包…");
+        toast("模型拓展包已导入");
+      };
+      if (state.models.length)
+        setConfirmation({
+          title: "导入模型拓展包？",
+          detail: "导入成功后将替换当前模型列表。需要保留的编辑请先保存工程。",
+          action,
+        });
+      else await action();
+    } catch (e) {
+      report(e);
+    }
+  }
+  async function saveProject() {
+    try {
+      const result = await run("project.save", {}, "正在保存工程…");
+      if (!result.canceled) toast("工程已保存，列表和资源可在下次打开时恢复");
+    } catch (e) {
+      report(e);
+    }
+  }
+  function openProject() {
+    const action = async () => {
+      const result = await run("project.open", {}, "正在打开工程…");
+      if (!result.canceled) toast("工程已恢复");
+    };
+    if (state.skins.length || state.models.length)
+      setConfirmation({
+        title: "打开工程？",
+        detail: "打开成功后将替换皮肤和模型列表。请先保存需要保留的编辑。",
+        action,
+      });
+    else action().catch(report);
+  }
   async function exportPackage() {
     try {
       const result = await run("export", { kind: page }, "正在生成拓展包…");
@@ -225,7 +268,7 @@ function App() {
     .map((item, index) => ({ item, index }))
     .filter(({ item }) =>
       (isSkins
-        ? `${item.Name} ${item.Author}`
+        ? `${item.Name} ${item.Author} ${skinId(item)} ${item.TargetIdentifier || ""}`
         : `${item.DisplayName} ${item.Identifier} ${item.SourceLabel}`
       )
         .toLowerCase()
@@ -346,6 +389,8 @@ function App() {
                         : "组合模型、贴图与动画，让你的角色进入世界。"
                     }
                   >
+                    <Button onClick={openProject}>打开工程</Button>
+                    <Button onClick={saveProject}>保存工程</Button>
                     <Button
                       icon="export"
                       primary
@@ -375,6 +420,11 @@ function App() {
                           导入 ZIP
                         </Button>
                       </>
+                    )}
+                    {isModels && (
+                      <Button icon="import" onClick={importModels}>
+                        导入 ZIP
+                      </Button>
                     )}
                     <div className="toolbar-spacer" />
                     <Search
@@ -482,6 +532,7 @@ function App() {
                               />
                             </th>
                             <th>{isSkins ? "皮肤" : "模型名称"}</th>
+                            {isSkins && <th>皮肤 ID</th>}
                             <th>{isSkins ? "作者" : "标识符"}</th>
                             {isModels && <th>资源</th>}
                             <th className="actions-heading">操作</th>
@@ -528,14 +579,35 @@ function App() {
                                     </strong>
                                     <small>
                                       {isSkins
-                                        ? item.FromImport
-                                          ? "已导入"
-                                          : "PNG 皮肤"
+                                        ? item.TargetIdentifier ||
+                                          (item.FromImport
+                                            ? "已导入"
+                                            : "PNG 皮肤")
                                         : item.SourceLabel}
                                     </small>
                                   </div>
                                 </div>
                               </td>
+                              {isSkins && (
+                                <td className="code skin-id-cell">
+                                  <span>{skinId(item)}</span>
+                                  <Button
+                                    icon="copy"
+                                    title="复制实际皮肤 ID"
+                                    aria-label={`复制 ${skinId(item)}`}
+                                    onClick={async () => {
+                                      try {
+                                        await api("clipboard.write", {
+                                          text: skinId(item),
+                                        });
+                                        toast("皮肤 ID 已复制");
+                                      } catch (e) {
+                                        report(e);
+                                      }
+                                    }}
+                                  />
+                                </td>
+                              )}
                               <td className={isModels ? "code muted" : "muted"}>
                                 {isSkins ? item.Author : item.Identifier}
                               </td>
@@ -624,7 +696,7 @@ function App() {
                   )}
                   <div className="workspace-footnote">
                     <Icon name="info" size={14} />
-                    列表仅保存在当前会话，退出前请导出需要保留的拓展包。
+                    列表保存在当前会话中；退出前请保存工程，或导出需要保留的拓展包。
                   </div>
                 </>
               )}
@@ -690,6 +762,7 @@ function App() {
       )}
       {files && (
         <SkinEditor
+          targets={skinTargets}
           files={files}
           onClose={() => setFiles(null)}
           onSave={addSkins}
@@ -697,6 +770,7 @@ function App() {
       )}
       {editSkins && (
         <SkinEdit
+          targets={skinTargets}
           indices={editSkins}
           skins={state.skins}
           onClose={() => setEditSkins(null)}
@@ -711,20 +785,11 @@ function App() {
         />
       )}
       {preview && (
-        <Modal
-          title={preview.Name}
-          description={`作者：${preview.Author}`}
+        <SkinPreview
+          skin={preview}
+          targets={skinTargets}
           onClose={() => setPreview(null)}
-          footer={
-            <Button primary onClick={() => setPreview(null)}>
-              关闭
-            </Button>
-          }
-        >
-          <div className="skin-preview">
-            <LocalImage path={preview.TexturePath} alt={preview.Name} />
-          </div>
-        </Modal>
+        />
       )}
       {confirmation && (
         <Modal

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace NpcSkinMaker
 {
@@ -66,6 +68,18 @@ namespace NpcSkinMaker
             throw new InvalidOperationException("无法生成唯一的短 ID，请重试");
         }
 
+        /// <summary>NPC 指令使用的短皮肤 ID：skin_ 加 UUID 的五位大写十六进制字符。</summary>
+        public static string GenerateUniqueSkinId(ISet<string> existingIds)
+        {
+            if (existingIds == null) throw new ArgumentNullException("existingIds");
+            for (int attempt = 0; attempt < 100; attempt++)
+            {
+                string id = "skin_" + Guid.NewGuid().ToString("N").Substring(0, 5).ToUpperInvariant();
+                if (existingIds.Add(id)) return id;
+            }
+            throw new InvalidOperationException("无法生成唯一的皮肤 ID，请重试");
+        }
+
         /// <summary>生成指定长度的小写字母和数字随机串。</summary>
         private static string GenerateRandomToken(int length, bool startsWithLetter)
         {
@@ -112,7 +126,7 @@ namespace NpcSkinMaker
         {
             try
             {
-                return File.ReadAllText(path, System.Text.Encoding.UTF8);
+                return ExportText.Read(path);
             }
             catch (Exception e)
             {
@@ -128,7 +142,7 @@ namespace NpcSkinMaker
                 string dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
-                File.WriteAllText(path, content, new System.Text.UTF8Encoding(false));
+                ExportText.Write(path, content);
             }
             catch (Exception e)
             {
@@ -141,7 +155,7 @@ namespace NpcSkinMaker
         {
             try
             {
-                string content = File.ReadAllText(path, System.Text.Encoding.UTF8);
+                string content = ExportText.Read(path);
                 content = content.Replace(oldText, newText);
                 WriteTextFile(path, content);
             }
@@ -216,6 +230,14 @@ namespace NpcSkinMaker
                     return false;
                 }
 
+                using (var stream = File.OpenRead(filePath))
+                using (var image = Image.FromStream(stream, true, true))
+                {
+                    if (image.RawFormat.Guid != ImageFormat.Png.Guid)
+                        throw new InvalidDataException("文件内容不是 PNG");
+                    using (var decoded = new Bitmap(image))
+                        decoded.GetPixel(decoded.Width - 1, decoded.Height - 1);
+                }
                 message = "验证成功";
                 return true;
             }
@@ -284,6 +306,15 @@ namespace NpcSkinMaker
         private static bool IsPowerOfTwo(int value)
         {
             return value > 0 && (value & (value - 1)) == 0;
+        }
+
+        public static bool FilesEqual(string first, string second)
+        {
+            if (new FileInfo(first).Length != new FileInfo(second).Length) return false;
+            using (var algorithm = System.Security.Cryptography.SHA256.Create())
+            using (var a = File.OpenRead(first))
+            using (var b = File.OpenRead(second))
+                return System.Linq.Enumerable.SequenceEqual(algorithm.ComputeHash(a), algorithm.ComputeHash(b));
         }
 
         /// <summary>清理文件名，移除中文和特殊符号</summary>

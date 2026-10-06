@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { removeTexture, nextSkinId } from "./model-resources.mjs";
+import { SkinTargetFields } from "./skin-preview.jsx";
 import {
   Button,
   Field,
@@ -9,7 +11,7 @@ import {
   basename,
 } from "./ui.jsx";
 
-export function SkinEditor({ files, onClose, onSave }) {
+export function SkinEditor({ files, targets, onClose, onSave }) {
   const [items, setItems] = useState(
     files.map((path) => ({
       path,
@@ -18,6 +20,8 @@ export function SkinEditor({ files, onClose, onSave }) {
     })),
   );
   const [author, setAuthor] = useState("");
+  const [targetIdentifier, setTarget] = useState(""),
+    [textureSlot, setSlot] = useState("skin_4");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   async function submit(e) {
@@ -28,7 +32,9 @@ export function SkinEditor({ files, onClose, onSave }) {
     }
     setBusy(true);
     try {
-      await onSave(items.map((i) => ({ ...i, author })));
+      await onSave(
+        items.map((i) => ({ ...i, author, targetIdentifier, textureSlot })),
+      );
       onClose();
     } catch (e) {
       setError(e.message);
@@ -57,6 +63,13 @@ export function SkinEditor({ files, onClose, onSave }) {
     >
       <form onSubmit={submit}>
         <ErrorBox>{error}</ErrorBox>
+        <SkinTargetFields
+          targets={targets}
+          value={targetIdentifier}
+          slot={textureSlot}
+          onChange={setTarget}
+          onSlotChange={setSlot}
+        />
         <div className="skin-inputs">
           {items.map((item, i) => (
             <div className="skin-input-row" key={item.path}>
@@ -99,10 +112,16 @@ export function SkinEditor({ files, onClose, onSave }) {
   );
 }
 
-export function SkinEdit({ indices, skins, onClose, onSave }) {
+export function SkinEdit({ indices, skins, targets, onClose, onSave }) {
   const single = indices.length === 1;
   const [name, setName] = useState(single ? skins[indices[0]].Name : "");
   const [author, setAuthor] = useState(single ? skins[indices[0]].Author : "");
+  const [targetIdentifier, setTarget] = useState(
+    single ? skins[indices[0]].TargetIdentifier || "" : "",
+  );
+  const [textureSlot, setSlot] = useState(
+    single ? skins[indices[0]].TextureSlot || "skin_4" : "skin_4",
+  );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   async function save() {
@@ -112,7 +131,12 @@ export function SkinEdit({ indices, skins, onClose, onSave }) {
     }
     setBusy(true);
     try {
-      await onSave({ indices, name, author });
+      await onSave({
+        indices,
+        name,
+        author,
+        ...(single ? { targetIdentifier, textureSlot } : {}),
+      });
       onClose();
     } catch (e) {
       setError(e.message);
@@ -138,6 +162,15 @@ export function SkinEdit({ indices, skins, onClose, onSave }) {
       }
     >
       <ErrorBox>{error}</ErrorBox>
+      {single && (
+        <SkinTargetFields
+          targets={targets}
+          value={targetIdentifier}
+          slot={textureSlot}
+          onChange={setTarget}
+          onSlotChange={setSlot}
+        />
+      )}
       <Field label="人物名称">
         <input
           autoFocus
@@ -266,7 +299,7 @@ export function ModelEditor({ model, index, onClose, onSave }) {
           </Field>
           <Field
             label="自定义名称 *"
-            hint="小写字母开头，仅限字母、数字和下划线"
+            hint="小写字母开头，仅限字母、数字和下划线；新模型不能与 NPC 内置模型重名"
           >
             <input
               placeholder="例如：forest_guard"
@@ -385,10 +418,7 @@ export function ModelEditor({ model, index, onClose, onSave }) {
                 icon="trash"
                 aria-label={`移除贴图 ${i}`}
                 onClick={() =>
-                  update(
-                    "Textures",
-                    entry.Textures.filter((_, j) => i !== j),
-                  )
+                  setEntry((previous) => removeTexture(previous, i))
                 }
               />
             </div>
@@ -396,14 +426,18 @@ export function ModelEditor({ model, index, onClose, onSave }) {
           <div className="subheading separated">
             <div>
               <h3>皮肤变体</h3>
-              <p>指定出现在 NPC 皮肤列表中的贴图编号、名称与作者。</p>
+              <p>
+                指定出现在 NPC
+                皮肤列表中的贴图编号、名称与作者；删除贴图时会同步调整变体编号。
+              </p>
             </div>
             <Button
               icon="plus"
+              disabled={nextSkinId(entry) < 0}
               onClick={() =>
                 update("SkinList", [
                   ...entry.SkinList,
-                  { SkinId: entry.SkinList.length, Name: "", By: "Minecraft" },
+                  { SkinId: nextSkinId(entry), Name: "", By: "Minecraft" },
                 ])
               }
             >

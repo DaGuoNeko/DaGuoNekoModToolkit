@@ -17,17 +17,26 @@
 
 ## 功能
 
-- **皮肤拓展**：单个 / 批量添加 PNG、拖拽导入、编辑与批量编辑、预览、搜索和选择、删除、ZIP 导入与导出。导入前完整校验，失败保留当前列表。
-- **模型拓展**：模型 JSON、贴图、动画资源、皮肤变体、碰撞箱、附件和实体动画配置，排序、编辑、删除与 ZIP 导出。
+- **皮肤拓展**：单个 / 批量添加 PNG、拖拽导入、编辑与批量编辑、显示和复制实际 ID、按 ID 搜索、删除、ZIP 导入与导出。支持通用人型皮肤、选择 NPC 现有模型 ID，以及手工填写自定义模型 ID / 贴图槽位。导入前完整校验，失败保留当前列表。
+- **3D 皮肤预览**：标准人型皮肤支持旋转、缩放和 Steve / Alex 手臂切换，也可查看原始贴图；使用本地打包的 skinview3d，运行时不请求外部网址。非人型贴图需要对应 geometry，当前展示原始贴图。
+- **模型拓展**：模型 JSON、贴图、动画资源、皮肤变体、碰撞箱、附件和实体动画配置，排序、编辑、删除与 ZIP 导入/导出。适配 NPC 5.0.5 的颜色、透明度和描边；新模型名称禁止与内置模型冲突。
+- **工程保存**：通过“保存工程 / 打开工程”保存和恢复皮肤、模型及全部关联资源，文件格式为 `.dgnproject`；打开失败保留当前工作区。
+- **导出编码**：游戏 ZIP 中的 JSON、Python、材质、语言文件、shader 等文本统一为 UTF-8 无 BOM。可识别 UTF-8 / UTF-16 / UTF-32 BOM；未知编码、非法字节或损坏的 Unicode 会报出文件名并拒绝导出，避免静默乱码。PNG / OGG 等二进制资源和工程存档中的原素材保持原字节。
 - **开发者工具箱**：启动网易开发版 MC、调用外部 Python 脚本生成 MOD 框架和物品模板。
 - **MCStudio 项目**：账号与项目列表、源代码路径管理、配置目录、测试存档与游戏版本修改。修改前保留 `.mcnpc.bak` 备份。
 - **存档全局配置**：正式端 / 测试端切换、玩家选择、文件搜索、按时间排序、打开及资源管理器定位。
 - **3D 文字**：仅保留快捷入口，使用系统默认浏览器打开在线工具，不在应用内创建浏览窗口。
 - **外观**：中性色侧栏和列表工作区；浅色 / 深色 / 跟随系统；强调色预设；自定义背景；可收起侧栏；弹窗遮罩覆盖标题栏按钮。下拉框统一使用随主题切换的浮层菜单，支持键盘选择和长列表滚动。界面字体固定为 **Microsoft YaHei UI**，不支持字体自定义。
 
-皮肤和模型列表保存在当前会话，切换页面不会清空，退出前应导出需要保留的拓展包。为兼容旧版本，设置继续使用 `%LocalAppData%/NPC_SkinMaker/settings.json`，兼容旧版路径与外观偏好，忽略旧自定义字体字段。
+皮肤和模型列表保存在当前会话，切换页面不会清空，退出前请保存工程或导出拓展包。新皮肤 ID 使用 `skin_` 加 UUID 前 5 位的大写十六进制字符（例如 `skin_A3F9C`），在添加时固定并检查重名；5 位截断不能保证跨包唯一；重复导出保持不变，导入包和已保存工程继续保留原 ID。模型 ZIP 导入支持本工具生成的包，以及单个 default geometry、连续 default 贴图变体的拓展包；无法安全转换的自定义材质或多层模型会明确拒绝，避免丢失原资源。为兼容旧版本，设置继续使用 `%LocalAppData%/NPC_SkinMaker/settings.json`，兼容旧版路径与外观偏好，忽略旧自定义字体字段。
 
-发布目录固定为 `DesktopUI/release/`，仅保留当前可运行目录和 `DaGuoNeko-Mod-Toolkit-win-x64.zip`。
+发布目录固定为 `DesktopUI/release/`。正在运行的旧版目录被锁定时，可将新版打包到其独立子目录，避免覆盖正在使用的程序。
+
+指定模型皮肤需要加载配套更新的 customNPC 脚本；旧版加载器不会识别目标模型字段。目标模型本身必须已安装并被 NPC 系统识别，PNG 需符合该模型的 UV 布局。多贴图模型每个皮肤条目覆盖所选槽位，不会替换其他槽位。导出配置保留旧 `npcskinlist`，并为指定模型条目增加 `target_identifier` 和 `texture_slot`：
+
+```json
+{"ID":"skin_A3F9C","name":"森林守卫","by":"作者","texture":"textures/entity/npc_dlcskin/skin_A3F9C","target_identifier":"customnpc:forest_guard_dlcnpc","texture_slot":"default"}
+```
 
 ## 开发与打包
 
@@ -45,6 +54,7 @@ npm test            # 后端真实打包及设置 / 配置服务测试，需 Pyt
 npm run test:ui     # Playwright 驱动真实 Electron 与后端
 npm run test:web    # 检查默认浏览器入口、失败提示和固定网址限制
 npm run package    # 生成 Windows x64 可运行目录
+node scripts/package.mjs --output=release/skin-preview-update # 构建后打包到独立目录
 ```
 
 Electron 首次运行需要下载官方运行时。如已准备经官方校验值验证的 `electron-v44.5.1-win32-x64.zip`，可放入 `DesktopUI/node_modules/.cache/` 供打包复用。
@@ -62,7 +72,7 @@ DesktopUI/
   electron/          # 主进程、受限 IPC、文件对话框、设置与工具服务
   src/               # React 页面、编辑器与样式
   backend/           # JSON 行协议后端
-    Core/            # 8 个 C# 业务源码文件
+    Core/            # 拓展包、资源校验及工程存档业务源码
     Resources/       # 皮肤 / 模型模板 ZIP
   assets/            # 软件图标
   scripts/           # 构建与打包

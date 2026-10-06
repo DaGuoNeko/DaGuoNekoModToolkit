@@ -13,8 +13,10 @@
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Drawing" />
     <!-- Core sources are included by the SDK from this project directory. -->
     <EmbeddedResource Include="Resources/template.zip" LogicalName="template.zip" />
     <EmbeddedResource Include="Resources/template_models.zip" LogicalName="template_models.zip" />
+    <EmbeddedResource Include="Resources/npc_compatibility.json" LogicalName="npc_compatibility.json" />
   </ItemGroup>
 </Project>

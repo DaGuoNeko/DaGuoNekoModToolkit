@@ -7,7 +7,7 @@ namespace NpcSkinMaker
     /// </summary>
     public class SkinData
     {
-        /// <summary>皮肤唯一 ID（如 skin_abc123）</summary>
+        /// <summary>皮肤唯一 ID（新建格式如 skin_A3F9C；导入保留原 ID）</summary>
         public string Id { get; set; }
 
         /// <summary>本地贴图文件路径</summary>
@@ -29,6 +29,8 @@ namespace NpcSkinMaker
 
         /// <summary>是否来自导入</summary>
         public bool FromImport { get; set; }
+        public string TargetIdentifier { get; set; } = "";
+        public string TextureSlot { get; set; } = "skin_4";
 
         /// <summary>缩略图路径（UI 用，不序列化）</summary>
         public string ThumbnailPath
