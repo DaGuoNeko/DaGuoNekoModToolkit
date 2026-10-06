@@ -1,0 +1,29 @@
+# Dependencies and generated output
+node_modules/
+bin/
+obj/
+DesktopUI/dist/
+DesktopUI/release/
+DesktopUI/test-results/
+
+# Local IDE / tooling data
+.vs/
+.vscode/
+.idea/
+.zcode/
+.miao/
+*.user
+*.suo
+*.userprefs
+*.cache
+
+# Local settings, logs and temporary files
+.env
+.env.*
+*.log
+*.tmp
+*.bak
+*.old
+*~
+Thumbs.db
+.DS_Store

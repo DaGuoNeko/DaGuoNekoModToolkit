@@ -1,0 +1,32 @@
+{
+  "name": "daguoneko-mod-toolkit",
+  "version": "2.1.0",
+  "private": true,
+  "description": "大果喵模组工具箱 — DaGuoNeko Mod Toolkit",
+  "author": "DaGuoNeko",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "build:backend": "dotnet build backend/NpcSkinMaker.Backend.csproj -c Release -v quiet",
+    "build:web": "node scripts/build.mjs",
+    "build": "npm run build:backend && npm run build:web",
+    "start": "npm run build && electron .",
+    "package": "npm run build && node scripts/package.mjs",
+    "test": "npm run build && node --test tests/*.test.cjs",
+    "test:ui": "npm run build && node tests/ui-smoke.cjs",
+    "test:web": "npm run build:web && node tests/web-tool-ui.cjs",
+    "test:select": "npm run build:web && node tests/select-ui.cjs",
+    "test:window": "npm run build:web && node tests/window-ui.cjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.5.1",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
+    "prettier": "3.9.9"
+  },
+  "productName": "大果喵模组工具箱"
+}
