@@ -1,19 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { WindowControls } from "./window-controls.jsx";
+import { usePageNavigation } from "./page-navigation.jsx";
 import {
   Icon,
   Button,
   Intro,
+  HelpButton,
+  FileDropZone,
   Search,
   Empty,
   Modal,
   ErrorBox,
   LocalImage,
 } from "./ui.jsx";
-import { SkinEditor, SkinEdit, ModelEditor } from "./editors.jsx";
+import { SkinEditor, SkinEdit, ModelEditor, blankModel } from "./editors.jsx";
+import { planDrop, mergeModelFiles } from "./drop-import.mjs";
 import { SkinPreview, skinId } from "./skin-preview.jsx";
-import { AssetPage } from "./asset-page.jsx";
+import { AssetPage, AssetEditor } from "./asset-page.jsx";
 import {
   SettingsPage,
   ToolsPage,
@@ -26,8 +30,8 @@ import {
 import "./styles.css";
 
 const nav = [
-  { id: "skins", label: "皮肤拓展", icon: "skin", group: "创作" },
-  { id: "models", label: "模型拓展", icon: "cube" },
+  { id: "skins", label: "NPC皮肤拓展", icon: "skin", group: "创作" },
+  { id: "models", label: "NPC模型拓展", icon: "cube" },
   { id: "textures", label: "贴图拓展", icon: "image" },
   { id: "sounds", label: "音效拓展", icon: "sound" },
   { id: "text", label: "3D 文字", icon: "text", group: "工具" },
@@ -36,6 +40,11 @@ const nav = [
   { id: "configs", label: "存档全局配置", icon: "settings" },
 ];
 const api = (method, args) => window.toolkit.call(method, args);
+const pageOrder = [
+  ...nav.flatMap(({ id }) => (id === "studio" ? [id, "tests"] : [id])),
+  "settings",
+  "about",
+];
 const developerPages = ["text", "tools", "studio", "configs", "tests"];
 function App() {
   const [loaded, setLoaded] = useState(false),
@@ -49,12 +58,14 @@ function App() {
     [settings, setSettings] = useState(null),
     [version, setVersion] = useState("");
   const [skinTargets, setSkinTargets] = useState([]);
-  const [page, setPage] = useState("skins"),
+  const [page, setPage] = usePageNavigation("skins", pageOrder);
+  const [projectRevision, setProjectRevision] = useState(0),
     [busy, setBusy] = useState(""),
     [search, setSearch] = useState(""),
     [selected, setSelected] = useState([]),
     [offset, setOffset] = useState(0);
   const [files, setFiles] = useState(null),
+    [droppedAssets, setDroppedAssets] = useState(null),
     [editSkins, setEditSkins] = useState(null),
     [editModel, setEditModel] = useState(null),
     [preview, setPreview] = useState(null);
@@ -111,6 +122,18 @@ function App() {
     });
   }, []);
   useEffect(() => {
+    const preventFileNavigation = (event) => {
+      if (Array.from(event.dataTransfer?.types || []).includes("Files"))
+        event.preventDefault();
+    };
+    window.addEventListener("dragover", preventFileNavigation);
+    window.addEventListener("drop", preventFileNavigation);
+    return () => {
+      window.removeEventListener("dragover", preventFileNavigation);
+      window.removeEventListener("drop", preventFileNavigation);
+    };
+  }, []);
+  useEffect(() => {
     if (!toastMessage) return;
     const timer = setTimeout(() => setToastMessage(""), 4500);
     return () => clearTimeout(timer);
@@ -140,9 +163,9 @@ function App() {
       setBusy("");
     }
   }
-  async function chooseSkins(multiple) {
+  async function chooseSkins() {
     try {
-      const chosen = await api("files.pick", { kind: "skin", multiple });
+      const chosen = await api("files.pick", { kind: "skin", multiple: true });
       if (chosen.length) setFiles(chosen);
     } catch (e) {
       report(e);
@@ -155,17 +178,20 @@ function App() {
     if (result.errors.length)
       report(new Error(`部分文件未能添加：\n${result.errors.join("\n")}`));
   }
-  async function importSkins() {
+  async function importSkins(source) {
     try {
-      const paths = await api("files.pick", { kind: "zip" });
+      const paths =
+        typeof source === "string"
+          ? [source]
+          : await api("files.pick", { kind: "zip" });
       if (!paths.length) return;
       const action = async () => {
         await run("skins.import", { path: paths[0] }, "正在导入拓展包…");
-        toast("皮肤拓展包已导入");
+        toast("NPC皮肤拓展包已导入");
       };
       if (state.skins.length)
         setConfirmation({
-          title: "导入皮肤拓展包？",
+          title: "导入NPC皮肤拓展包？",
           detail: "导入成功后将替换当前皮肤列表。需要保留的内容请先导出。",
           action,
         });
@@ -174,17 +200,24 @@ function App() {
       report(e);
     }
   }
-  async function importModels() {
+  async function importModels(source) {
     try {
-      const paths = await api("files.pick", { kind: "zip" });
+      const paths =
+        typeof source === "string"
+          ? [source]
+          : await api("files.pick", { kind: "zip" });
       if (!paths.length) return;
       const action = async () => {
-        await run("models.import", { path: paths[0] }, "正在导入模型拓展包…");
-        toast("模型拓展包已导入");
+        await run(
+          "models.import",
+          { path: paths[0] },
+          "正在导入NPC模型拓展包…",
+        );
+        toast("NPC模型拓展包已导入");
       };
       if (state.models.length)
         setConfirmation({
-          title: "导入模型拓展包？",
+          title: "导入NPC模型拓展包？",
           detail: "导入成功后将替换当前模型列表。需要保留的编辑请先保存工程。",
           action,
         });
@@ -201,9 +234,13 @@ function App() {
       report(e);
     }
   }
-  function openProject() {
+  function openProject(source) {
     const action = async () => {
-      const result = await run("project.open", {}, "正在打开工程…");
+      const result = await run(
+        "project.open",
+        typeof source === "string" ? { path: source } : {},
+        "正在打开工程…",
+      );
       if (!result.canceled) toast("工程已恢复");
     };
     if (
@@ -245,16 +282,68 @@ function App() {
       action: () => run(page + ".clear"),
     });
   }
-  async function drop(e) {
-    e.preventDefault();
-    if (page !== "skins" || busy || files || editSkins || editModel) return;
+  function newProject() {
+    const kind = page;
+    const label = nav.find((item) => item.id === kind).label;
+    const resetDetails = ["textures", "sounds"].includes(kind)
+      ? "清空资源列表，恢复默认包名、作者和版本，重新生成包标识及全部 UUID。"
+      : "清空当前列表和导入配置；后续新增内容重新配置，导出时生成新的包 UUID。";
+    setConfirmation({
+      title: `新建${label}项目？`,
+      detail: `${resetDetails}请先保存需要保留的工程。其他功能页的数据和磁盘上的文件不会改动。`,
+      action: async () => {
+        await run("project.new", { kind }, "正在新建项目…");
+        setSearch("");
+        setOffset(0);
+        setFiles(null);
+        setEditSkins(null);
+        setEditModel(null);
+        setDroppedAssets(null);
+        setPreview(null);
+        setExported(null);
+        setProjectRevision((revision) => revision + 1);
+        toast(`已新建${label}项目`);
+      },
+    });
+  }
+  async function importAssets(kind, source) {
     try {
-      const chosen = await window.toolkit.droppedFiles(e.dataTransfer.files);
-      if (chosen.length) setFiles(chosen);
-      else toast("请拖入 PNG 皮肤文件");
+      const paths =
+        typeof source === "string"
+          ? [source]
+          : await api("files.pick", { kind: "zip" });
+      if (!paths.length) return;
+      const label = kind === "textures" ? "贴图" : "音效";
+      const action = async () => {
+        await run(`${kind}.import`, { path: paths[0] }, "正在导入拓展包…");
+        toast(`${label}拓展包已导入`);
+      };
+      if (state[kind].length)
+        setConfirmation({
+          title: `导入${label}拓展包？`,
+          detail: "验证成功后替换当前列表和包设置；失败保留原内容。",
+          action,
+        });
+      else await action();
     } catch (error) {
       report(error);
     }
+  }
+  async function drop(paths) {
+    const plan = planDrop(paths, page);
+    if (plan.type === "project") return openProject(plan.path);
+    if (plan.type === "archive") {
+      if (page === "skins") return importSkins(plan.path);
+      if (page === "models") return importModels(plan.path);
+      return importAssets(page, plan.path);
+    }
+    if (page === "skins") setFiles(plan.paths);
+    else if (page === "models")
+      setEditModel({
+        index: -1,
+        initialEntry: mergeModelFiles(blankModel(), plan.paths),
+      });
+    else setDroppedAssets({ kind: page, paths: plan.paths });
   }
   if (!loaded)
     return (
@@ -305,9 +394,22 @@ function App() {
   }
   return (
     <div
-      className={`app ${collapsed ? "collapsed" : ""}`}
-      style={{ "--accent-hue": settings.ThemeHue || 210 }}
+      className={`app ${collapsed ? "collapsed" : ""} ${settings.BgImagePath ? "has-background" : ""}`}
+      style={{
+        "--accent-hue": settings.ThemeHue || 210,
+        "--background-opacity": settings.BgImageOpacity,
+        "--background-blur": `${settings.BgImageBlur}px`,
+        "--background-scale": settings.BgImageScale,
+      }}
     >
+      {settings.BgImagePath && (
+        <div className="window-background" aria-hidden="true">
+          <LocalImage
+            path={settings.BgImagePath}
+            className="workspace-background"
+          />
+        </div>
+      )}
       <aside className="sidebar">
         <div className="sidebar-top">
           <div className="brand-mark">
@@ -390,30 +492,33 @@ function App() {
             <strong>{current}</strong>
           </span>
         </header>
-        <main
-          onDragOver={(e) => {
-            if (isSkins) e.preventDefault();
-          }}
-          onDrop={drop}
+        <FileDropZone
+          as="main"
+          key={`${page}:${projectRevision}`}
+          onFiles={drop}
+          report={report}
+          disabled={
+            !!busy || !["skins", "models", "textures", "sounds"].includes(page)
+          }
+          blockWhenModal
+          hint="松开以导入素材、ZIP 或工程文件"
         >
-          {settings.BgImagePath && (
-            <LocalImage
-              path={settings.BgImagePath}
-              className="workspace-background"
-            />
-          )}
           <div className="page-container">
             <fieldset disabled={!!busy} className="workspace-fieldset">
               {(isSkins || isModels) && (
                 <>
                   <Intro
-                    title={isSkins ? "皮肤拓展" : "模型拓展"}
+                    title={isSkins ? "NPC皮肤拓展" : "NPC模型拓展"}
                     subtitle={
                       isSkins
                         ? "整理人物皮肤，制作属于你的 NPC 拓展包。"
                         : "组合模型、贴图与动画，让你的角色进入世界。"
                     }
                   >
+                    <HelpButton page={page} report={report} />
+                    <Button icon="plus" onClick={newProject}>
+                      新建项目
+                    </Button>
                     <Button onClick={openProject}>打开工程</Button>
                     <Button onClick={saveProject}>保存工程</Button>
                     <Button
@@ -429,18 +534,13 @@ function App() {
                     <Button
                       icon="plus"
                       onClick={() =>
-                        isSkins
-                          ? chooseSkins(false)
-                          : setEditModel({ index: -1 })
+                        isSkins ? chooseSkins() : setEditModel({ index: -1 })
                       }
                     >
                       添加{isSkins ? "皮肤" : "模型"}
                     </Button>
                     {isSkins && (
                       <>
-                        <Button onClick={() => chooseSkins(true)}>
-                          批量添加
-                        </Button>
                         <Button icon="import" onClick={importSkins}>
                           导入 ZIP
                         </Button>
@@ -644,6 +744,16 @@ function App() {
                               )}
                               <td>
                                 <div className="row-actions">
+                                  {isSkins && (
+                                    <Button
+                                      icon="image"
+                                      aria-label={`查看 ${item.Name}`}
+                                      title="查看皮肤"
+                                      onClick={() => setPreview(item)}
+                                    >
+                                      查看
+                                    </Button>
+                                  )}
                                   <Button
                                     icon="edit"
                                     aria-label={`编辑 ${isSkins ? item.Name : item.DisplayName}`}
@@ -682,7 +792,7 @@ function App() {
                             icon="plus"
                             onClick={() =>
                               isSkins
-                                ? chooseSkins(false)
+                                ? chooseSkins()
                                 : setEditModel({ index: -1 })
                             }
                           >
@@ -721,6 +831,9 @@ function App() {
                   )}
                   <div className="workspace-footnote">
                     <Icon name="info" size={14} />
+                    {isSkins
+                      ? "可拖入 PNG、ZIP 或工程文件。"
+                      : "可拖入模型 JSON、PNG、动画文件、ZIP 或工程文件。"}
                     列表保存在当前会话中；退出前请保存工程，或导出需要保留的拓展包。
                   </div>
                 </>
@@ -742,6 +855,8 @@ function App() {
                   toast={toast}
                   confirm={setConfirmation}
                   openProject={openProject}
+                  newProject={newProject}
+                  importPackage={() => importAssets(page)}
                   saveProject={saveProject}
                   exportPackage={exportPackage}
                 />
@@ -785,7 +900,7 @@ function App() {
               {page === "text" && <TextPage />}
             </fieldset>
           </div>
-        </main>
+        </FileDropZone>
         {busy && (
           <div className="progress-bar" role="status">
             <span className="spinner" />
@@ -819,8 +934,21 @@ function App() {
       {editModel && (
         <ModelEditor
           {...editModel}
+          models={state.models}
           onClose={() => setEditModel(null)}
           onSave={(args) => run("models.save", args, "正在校验模型…")}
+        />
+      )}
+      {droppedAssets && (
+        <AssetEditor
+          kind={droppedAssets.kind}
+          paths={droppedAssets.paths}
+          entries={state[droppedAssets.kind]}
+          onClose={() => setDroppedAssets(null)}
+          onSave={async (items) => {
+            await run(`${droppedAssets.kind}.add`, { items }, "正在保存资源…");
+            toast("资源已添加");
+          }}
         />
       )}
       {preview && (

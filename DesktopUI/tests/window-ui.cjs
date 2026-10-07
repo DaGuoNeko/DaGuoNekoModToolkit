@@ -29,7 +29,7 @@ const { atomicJson } = require("../electron/services.cjs");
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.setBackgroundThrottling(
@@ -107,7 +107,7 @@ const { atomicJson } = require("../electron/services.cjs");
 
     await page
       .locator(".sidebar")
-      .getByRole("button", { name: "模型拓展", exact: true })
+      .getByRole("button", { name: "NPC模型拓展", exact: true })
       .click();
     for (const mode of ["Light", "Dark"]) {
       await page.evaluate(

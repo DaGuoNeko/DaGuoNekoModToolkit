@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   Button,
   Intro,
+  HelpButton,
   Search,
   Empty,
   Modal,
@@ -9,12 +10,19 @@ import {
   ErrorBox,
   LocalImage,
   basename,
+  useValidation,
 } from "./ui.jsx";
+import {
+  required,
+  identifier,
+  numberRange,
+  packVersion,
+} from "./validation.mjs";
 
 const api = (method, args) => window.toolkit.call(method, args);
 const labels = { textures: "贴图", sounds: "音效" };
 
-function AssetEditor({ kind, paths, entry, onClose, onSave }) {
+export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
   const editing = !!entry;
   const [items, setItems] = useState(
     entry
@@ -39,8 +47,40 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
   const [stream, setStream] = useState(items[0].Stream);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const others = entries.filter((item) => item.Id !== entry?.Id);
+  const errors = {
+    category:
+      required(category) ||
+      (others.some(
+        (item) =>
+          item.CategoryId === categoryId.trim() &&
+          item.CategoryName !== category.trim(),
+      )
+        ? "同一分类 ID 必须使用相同的分类名称"
+        : ""),
+    categoryId: identifier(categoryId.trim()),
+    ...(kind === "sounds"
+      ? {
+          volume: numberRange(volume, 0, 1),
+          pitch: numberRange(pitch, 0, 256, true),
+        }
+      : {}),
+  };
+  items.forEach((item, i) => {
+    errors[`name${i}`] = required(item.Name);
+    errors[`id${i}`] =
+      identifier(item.Id, !editing) ||
+      (item.Id.trim() &&
+      [...others, ...items.filter((_, j) => i !== j)].some(
+        (other) => other.Id === item.Id,
+      )
+        ? "资源 ID 已存在"
+        : "");
+  });
+  const validation = useValidation(errors);
   async function save(event) {
     event?.preventDefault();
+    if (!validation.check()) return;
     setBusy(true);
     try {
       const values = items.map((item) => ({
@@ -84,7 +124,7 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
         </>
       }
     >
-      <form onSubmit={save}>
+      <form onSubmit={save} noValidate>
         <ErrorBox>{error}</ErrorBox>
         {items.map((item, index) => (
           <div className="section" key={index}>
@@ -98,7 +138,10 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
               )}
               <span className="muted">{basename(item.Path)}</span>
             </div>
-            <Field label={`资源名称${items.length > 1 ? ` ${index + 1}` : ""}`}>
+            <Field
+              label={`资源名称${items.length > 1 ? ` ${index + 1}` : ""}`}
+              {...validation.field(`name${index}`)}
+            >
               <input
                 autoFocus={index === 0}
                 value={item.Name}
@@ -113,11 +156,12 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
             </Field>
             <Field
               label={`资源 ID${items.length > 1 ? ` ${index + 1}` : ""}`}
+              {...validation.field(`id${index}`)}
               hint="小写字母开头，只含小写字母、数字、下划线。"
             >
               <input
                 value={item.Id}
-                placeholder="留空自动生成"
+                placeholder={editing ? "填写资源 ID" : "留空自动生成"}
                 onChange={(e) =>
                   setItems(
                     items.map((x, i) =>
@@ -130,13 +174,13 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
           </div>
         ))}
         <div className="form-grid">
-          <Field label="分类名称">
+          <Field label="分类名称" {...validation.field("category")}>
             <input
               value={category}
               onChange={(e) => setCategory(e.target.value)}
             />
           </Field>
-          <Field label="分类 ID">
+          <Field label="分类 ID" {...validation.field("categoryId")}>
             <input
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
@@ -149,22 +193,22 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
         {kind === "sounds" && (
           <>
             <div className="form-grid">
-              <Field label="音量（0–1）">
+              <Field label="音量（0–1）" {...validation.field("volume")}>
                 <input
                   type="number"
                   min="0"
                   max="1"
-                  step="0.1"
+                  step="any"
                   value={volume}
                   onChange={(e) => setVolume(e.target.value)}
                 />
               </Field>
-              <Field label="音调（大于0）">
+              <Field label="音调（大于0）" {...validation.field("pitch")}>
                 <input
                   type="number"
-                  min="0.01"
+                  min="0"
                   max="256"
-                  step="0.1"
+                  step="any"
                   value={pitch}
                   onChange={(e) => setPitch(e.target.value)}
                 />
@@ -186,14 +230,24 @@ function AssetEditor({ kind, paths, entry, onClose, onSave }) {
   );
 }
 
-function PackEditor({ pack, onClose, onSave }) {
+function PackEditor({ pack, otherProviderId, onClose, onSave }) {
   const [name, setName] = useState(pack.Name),
     [author, setAuthor] = useState(pack.Author),
     [providerId, setProviderId] = useState(pack.ProviderId);
   const [version, setVersion] = useState(pack.Version);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const validation = useValidation({
+    name: required(name),
+    version: packVersion(version.trim()),
+    providerId:
+      identifier(providerId.trim()) ||
+      (providerId.trim() === otherProviderId
+        ? "贴图包与音效包不能使用相同标识"
+        : ""),
+  });
   async function save() {
+    if (!validation.check()) return;
     setBusy(true);
     try {
       await onSave({ name, author, providerId, version });
@@ -221,7 +275,7 @@ function PackEditor({ pack, onClose, onSave }) {
       }
     >
       <ErrorBox>{error}</ErrorBox>
-      <Field label="拓展包名称">
+      <Field label="拓展包名称" {...validation.field("name")}>
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="作者">
@@ -229,12 +283,14 @@ function PackEditor({ pack, onClose, onSave }) {
       </Field>
       <Field
         label="包版本"
+        {...validation.field("version")}
         hint="例如 1.0.0；发布更新时提高版本，行为包和资源包自动同步。"
       >
         <input value={version} onChange={(e) => setVersion(e.target.value)} />
       </Field>
       <Field
         label="包标识"
+        {...validation.field("providerId")}
         hint="已自动生成唯一标识；发布后不建议更改，否则路径、音效名和简短 ID 都会改变。"
       >
         <input
@@ -300,8 +356,10 @@ export function AssetPage({
   toast,
   confirm,
   openProject,
+  newProject,
   saveProject,
   exportPackage,
+  importPackage,
 }) {
   const label = labels[kind],
     entries = state[kind],
@@ -340,25 +398,6 @@ export function AssetPage({
       report(error);
     }
   }
-  async function importZip() {
-    try {
-      const paths = await api("files.pick", { kind: "zip" });
-      if (!paths.length) return;
-      const action = async () => {
-        await run(`${kind}.import`, { path: paths[0] }, "正在导入拓展包…");
-        toast(`${label}拓展包已导入`);
-      };
-      if (entries.length)
-        confirm({
-          title: `导入${label}拓展包？`,
-          detail: "验证成功后替换当前列表和包设置；失败保留原内容。",
-          action,
-        });
-      else await action();
-    } catch (error) {
-      report(error);
-    }
-  }
   function remove(indices) {
     confirm({
       title: `删除 ${indices.length} 个${label}？`,
@@ -372,6 +411,10 @@ export function AssetPage({
         title={`${label}拓展`}
         subtitle="制作大果喵前置组件的资源拓展包，自动加入统一资源选择器。"
       >
+        <HelpButton page={kind} report={report} />
+        <Button icon="plus" onClick={newProject}>
+          新建项目
+        </Button>
         <Button onClick={openProject}>打开工程</Button>
         <Button onClick={saveProject}>保存工程</Button>
         <Button
@@ -387,7 +430,7 @@ export function AssetPage({
         <Button icon="plus" onClick={pick}>
           添加{label} / 批量添加
         </Button>
-        <Button icon="import" onClick={importZip}>
+        <Button icon="import" onClick={importPackage}>
           导入 ZIP
         </Button>
         <Button icon="settings" onClick={() => setSettings(true)}>
@@ -578,11 +621,14 @@ export function AssetPage({
         </div>
       )}
       <div className="workspace-footnote">
+        可拖入{kind === "textures" ? " PNG" : " OGG"}、ZIP 拓展包或 .dgnproject
+        工程。
         同时加载生成的行为包、资源包和大果喵前置组件。退出前请保存工程；已有包可导入继续编辑。
       </div>
       {editor && (
         <AssetEditor
           kind={kind}
+          entries={entries}
           {...editor}
           onClose={() => setEditor(null)}
           onSave={async (items) => {
@@ -600,6 +646,9 @@ export function AssetPage({
       {settings && (
         <PackEditor
           pack={pack}
+          otherProviderId={
+            state[kind === "textures" ? "soundPack" : "texturePack"].ProviderId
+          }
           onClose={() => setSettings(false)}
           onSave={(args) => run(`${kind}.settings`, args)}
         />

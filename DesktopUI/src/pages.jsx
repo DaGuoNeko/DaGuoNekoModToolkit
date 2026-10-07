@@ -12,7 +12,9 @@ import {
   Modal,
   Icon,
   LocalImage,
+  useValidation,
 } from "./ui.jsx";
+import { toolErrors } from "./validation.mjs";
 
 const api = (method, args) => window.toolkit.call(method, args);
 export function SettingsPage({ settings, saveSettings, report }) {
@@ -105,8 +107,89 @@ export function SettingsPage({ settings, saveSettings, report }) {
           onChange={(value) =>
             saveSettings({ BgImagePath: value }).catch(report)
           }
-          hint="低透明度显示，不影响列表与表单阅读。"
+          hint="图片覆盖整个窗口并居中等比铺满，超出窗口的部分会裁切。"
         />
+        <Field
+          label="背景透明度"
+          hint="0% 完全显示，100% 完全透明；仅影响背景图片。"
+        >
+          <div className="background-opacity-control">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={100 - Math.round(settings.BgImageOpacity * 100)}
+              aria-valuetext={`${100 - Math.round(settings.BgImageOpacity * 100)}%`}
+              onChange={(e) =>
+                saveSettings({
+                  BgImageOpacity: (100 - Number(e.target.value)) / 100,
+                }).catch(report)
+              }
+            />
+            <output>{100 - Math.round(settings.BgImageOpacity * 100)}%</output>
+            <Button
+              onClick={() =>
+                saveSettings({ BgImageOpacity: 0.06 }).catch(report)
+              }
+            >
+              恢复默认
+            </Button>
+          </div>
+        </Field>
+        {[
+          [
+            "BgImageBlur",
+            "背景模糊度",
+            0,
+            30,
+            1,
+            "px",
+            "数值越大越柔和，仅模糊背景，文字和控件保持清晰。",
+            0,
+          ],
+          [
+            "BgImageScale",
+            "背景缩放",
+            100,
+            200,
+            100,
+            "%",
+            "以图片中心缩放，100% 为适应窗口的铺满尺寸。",
+            1,
+          ],
+        ].map(
+          ([key, label, min, max, multiplier, unit, hint, defaultValue]) => (
+            <Field key={key} label={label} hint={hint}>
+              <div className="background-opacity-control">
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step="1"
+                  value={Math.round(settings[key] * multiplier)}
+                  aria-valuetext={`${Math.round(settings[key] * multiplier)}${unit}`}
+                  onChange={(e) =>
+                    saveSettings({
+                      [key]: Number(e.target.value) / multiplier,
+                    }).catch(report)
+                  }
+                />
+                <output>
+                  {Math.round(settings[key] * multiplier)}
+                  {unit}
+                </output>
+                <Button
+                  onClick={() =>
+                    saveSettings({ [key]: defaultValue }).catch(report)
+                  }
+                >
+                  恢复默认
+                </Button>
+              </div>
+            </Field>
+          ),
+        )}
         {settings.BgImagePath && (
           <Button
             onClick={() => saveSettings({ BgImagePath: "" }).catch(report)}
@@ -151,9 +234,12 @@ export function ToolsPage({
     [result, setResult] = useState(null);
   const mod = drafts.mod,
     item = drafts.item;
+  const modValidation = useValidation(toolErrors("mod", mod));
+  const itemValidation = useValidation(toolErrors("item", item));
   const change = (kind, key, value) =>
     setDrafts((old) => ({ ...old, [kind]: { ...old[kind], [key]: value } }));
   async function run(kind) {
+    if (!(kind === "mod" ? modValidation : itemValidation).check()) return;
     setBusy(kind);
     try {
       const result = await api("tools.run", { kind, input: drafts[kind] });
@@ -205,7 +291,7 @@ export function ToolsPage({
         description="使用你已有的 Python 生成脚本。"
       >
         {pathSetting("MOD 生成脚本", "ModScriptPath", "python")}
-        <Field label="模组名称">
+        <Field label="模组名称" {...modValidation.field("name")}>
           <input
             placeholder="例如：custom_example"
             value={mod.name}
@@ -247,7 +333,7 @@ export function ToolsPage({
             ["name", "中文名称"],
             ["tab", "创造栏"],
           ].map(([key, label]) => (
-            <Field label={label} key={key}>
+            <Field label={label} key={key} {...itemValidation.field(key)}>
               <input
                 value={item[key]}
                 onChange={(e) => change("item", key, e.target.value)}
@@ -258,7 +344,7 @@ export function ToolsPage({
             ["start", "起始序号"],
             ["end", "结束序号"],
           ].map(([key, label]) => (
-            <Field label={label} key={key}>
+            <Field label={label} key={key} {...itemValidation.field(key)}>
               <input
                 type="number"
                 min="0"
@@ -292,7 +378,7 @@ export function ToolsPage({
                 ...(item.type === 4 ? [["level", "挖掘等级"]] : []),
               ]
           ).map(([key, label]) => (
-            <Field key={key} label={label}>
+            <Field key={key} label={label} {...itemValidation.field(key)}>
               <input
                 type="number"
                 min="0"
@@ -638,7 +724,7 @@ export function ConfigsPage({ settings, saveSettings, report }) {
     <>
       <Intro
         title="存档全局配置"
-        subtitle="按玩家浏览网易互通版的全局配置文件。"
+        subtitle="按玩家或 config 目录浏览网易互通版的全局配置文件。"
       >
         <Button icon="refresh" disabled={busy} onClick={() => load()}>
           刷新
@@ -667,7 +753,13 @@ export function ConfigsPage({ settings, saveSettings, report }) {
           }}
           options={[
             { value: "", label: "选择玩家" },
-            ...data.players.map((value) => ({ value, label: value })),
+            ...data.players.map((value) => ({
+              value,
+              label:
+                value.toLowerCase() === "config"
+                  ? `${value}（直接配置目录）`
+                  : value,
+            })),
           ]}
         />
         <Search
@@ -740,6 +832,7 @@ export function ConfigsPage({ settings, saveSettings, report }) {
 }
 
 export function AboutPage({ version }) {
+  const [error, setError] = useState("");
   return (
     <>
       <Intro title="关于工具箱" subtitle="为你的模组创作，留出更多时间。" />
@@ -775,6 +868,25 @@ export function AboutPage({ version }) {
           Electron + React 界面，复用 C# 打包核心。字体固定为 Microsoft YaHei
           UI。
         </p>
+        <p className="about-repository">
+          <a
+            href="https://github.com/DaGuoNeko/DaGuoNekoModToolkit"
+            onClick={async (event) => {
+              event.preventDefault();
+              setError("");
+              try {
+                await api("web.open", { kind: "repository" });
+              } catch (error) {
+                setError(`无法打开仓库链接：${error.message}`);
+              }
+            }}
+          >
+            GitHub 仓库：DaGuoNeko/DaGuoNekoModToolkit
+            <Icon name="external" size={15} />
+          </a>
+        </p>
+        <p className="muted">喜欢就点个⭐吧！</p>
+        <ErrorBox>{error}</ErrorBox>
       </Section>
     </>
   );

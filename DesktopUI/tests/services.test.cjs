@@ -27,6 +27,9 @@ test("legacy preferences migrate without custom fonts; queued updates preserve u
   assert.equal(settings.value.LastOutputDir, "C:\\example");
   assert.equal(settings.value.FontFamilyName, undefined);
   assert.equal(settings.value.ShowModDeveloperTools, false);
+  assert.equal(settings.value.BgImageOpacity, 0.06);
+  assert.equal(settings.value.BgImageBlur, 0);
+  assert.equal(settings.value.BgImageScale, 1);
   await Promise.all([
     settings.update({ ThemeHue: 140 }),
     settings.update({ SidebarCollapsed: true }),
@@ -49,6 +52,29 @@ test("legacy preferences migrate without custom fonts; queued updates preserve u
   await assert.rejects(settings.update({ FontFamilyName: "Arial" }));
   await settings.update({ AppearanceMode: "Light" });
   assert.equal(settings.value.AppearanceMode, "Light");
+  await settings.update({ BgImageOpacity: 0 });
+  assert.equal((await new Settings(f.directory).load()).BgImageOpacity, 0);
+  await settings.update({ BgImageOpacity: 1 });
+  assert.equal((await new Settings(f.directory).load()).BgImageOpacity, 1);
+  for (const BgImageOpacity of [-1, 1.01, NaN, Infinity, "0.5"])
+    await assert.rejects(settings.update({ BgImageOpacity }));
+  assert.equal((await new Settings(f.directory).load()).BgImageOpacity, 1);
+  await atomicJson(settings.file, { BgImageOpacity: 200 });
+  assert.equal((await new Settings(f.directory).load()).BgImageOpacity, 0.06);
+  for (const [key, min, max] of [
+    ["BgImageBlur", 0, 30],
+    ["BgImageScale", 1, 2],
+  ]) {
+    for (const value of [min, max]) {
+      await settings.update({ [key]: value });
+      assert.equal((await new Settings(f.directory).load())[key], value);
+    }
+    for (const value of [min - 1, max + 1, NaN, Infinity, "1"])
+      await assert.rejects(settings.update({ [key]: value }));
+    assert.equal((await new Settings(f.directory).load())[key], max);
+    await atomicJson(settings.file, { [key]: max + 1 });
+    assert.equal((await new Settings(f.directory).load())[key], min);
+  }
 });
 test("external Python tool preserves Unicode stdin and drains both output streams", async (t) => {
   const f = await fixture();
@@ -137,4 +163,49 @@ test("project/save/config operations keep unrelated fields and create recoverabl
   const files = await globalConfigs(roaming, "正式端", "player");
   assert.equal(files.entries.length, 1);
   assert.equal(files.player, "player");
+});
+
+test("global configs include direct config folders alongside player folders on both channels", async (t) => {
+  const f = await fixture();
+  t.after(() => removeFixture(f.directory));
+  for (const [channel, folder] of [
+    ["正式端", "MinecraftPC_Netease_PB"],
+    ["测试端", "MinecraftPE_Netease"],
+  ]) {
+    const root = path.join(f.directory, folder, "storge/stream/users");
+    const direct = path.join(root, "config", "direct.json");
+    await atomicJson(direct, { direct: true });
+    let result = await globalConfigs(f.directory, channel, "");
+    assert.equal(result.player, "config");
+    assert.deepEqual(
+      result.entries.map((entry) => entry.path),
+      [direct],
+    );
+    await atomicJson(path.join(root, "config", "nested", "ignored.json"), {});
+    const personal = path.join(root, "player-01", "config", "player.json");
+    await atomicJson(personal, { player: true });
+    await fs.mkdir(path.join(root, "not-a-player"));
+    result = await globalConfigs(f.directory, channel, "");
+    assert.deepEqual(result.players, ["player-01", "config"]);
+    assert.equal(result.player, "player-01");
+    assert.deepEqual(
+      result.entries.map((entry) => entry.path),
+      [personal],
+    );
+    result = await globalConfigs(f.directory, channel, "config");
+    assert.deepEqual(
+      result.entries.map((entry) => entry.path),
+      [direct],
+    );
+    assert.equal(result.player, "config");
+    assert.equal(
+      (await globalConfigs(f.directory, channel, "../../")).player,
+      "player-01",
+    );
+    await fs.unlink(direct);
+    assert.deepEqual(
+      (await globalConfigs(f.directory, channel, "config")).entries,
+      [],
+    );
+  }
 });

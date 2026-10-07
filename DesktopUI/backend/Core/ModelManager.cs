@@ -76,7 +76,7 @@ namespace NpcSkinMaker
             {
                 if (i == ignoreIndex) continue;
                 if (string.Equals(_models[i].CustomName, entry.CustomName, StringComparison.OrdinalIgnoreCase))
-                    throw new Exception("自定义名称重复: " + entry.CustomName);
+                    throw new Exception("自定义模型 ID 重复: " + entry.CustomName);
             }
         }
     }

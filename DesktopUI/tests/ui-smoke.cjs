@@ -57,7 +57,7 @@ const { atomicJson } = require("../electron/services.cjs");
     }
     page.on("pageerror", (error) => errors.push(error.message));
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     await app.evaluate(({ dialog }) => {
       globalThis.pickerQueue = [];
@@ -244,17 +244,17 @@ const { atomicJson } = require("../electron/services.cjs");
       await page.getByText("选择字体文件", { exact: true }).count(),
       0,
     );
-    await nav("皮肤拓展");
+    await nav("NPC皮肤拓展");
     await page
       .getByRole("checkbox", { name: "选择 森林守卫 · 新版", exact: true })
       .waitFor();
     await screenshot({ path: "test-results/electron-dark-skins.png" });
-    await nav("模型拓展");
+    await nav("NPC模型拓展");
     await page.getByRole("button", { name: "添加模型", exact: true }).click();
     modal = page.getByRole("dialog");
     await modal.getByLabel("显示名称 *", { exact: true }).fill("森林守卫");
     await modal
-      .getByLabel("自定义名称 *", { exact: true })
+      .getByLabel("自定义模型 ID *", { exact: true })
       .fill("forest_guard");
     await pick(f.geo);
     await modal
@@ -263,10 +263,16 @@ const { atomicJson } = require("../electron/services.cjs");
     await modal.getByRole("tab", { name: "贴图与皮肤", exact: true }).click();
     await pick(f.texture);
     await modal.getByRole("button", { name: "添加贴图", exact: true }).click();
+    await modal.getByLabel("skinid", { exact: true }).waitFor();
     await modal.getByRole("tab", { name: "动画", exact: true }).click();
     await pick(f.animation);
     await modal.getByRole("button", { name: "添加文件", exact: true }).click();
-    await modal.getByLabel("idle", { exact: true }).fill("animation.test.idle");
+    await modal
+      .getByRole("combobox", { name: "idle（待机）", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "animation.test.idle", exact: true })
+      .click();
     await screenshot({ path: "test-results/electron-model-editor.png" });
     await modal.getByRole("button", { name: "保存模型", exact: true }).click();
     await page
@@ -291,7 +297,7 @@ const { atomicJson } = require("../electron/services.cjs");
       .getByRole("dialog")
       .getByRole("button", { name: "确认", exact: true })
       .click();
-    await page.getByText("模型拓展包已导入", { exact: true }).waitFor();
+    await page.getByText("NPC模型拓展包已导入", { exact: true }).waitFor();
     await page
       .getByRole("button", { name: "编辑 森林守卫", exact: true })
       .click();
@@ -299,9 +305,9 @@ const { atomicJson } = require("../electron/services.cjs");
     await modal.getByRole("tab", { name: "贴图与皮肤", exact: true }).click();
     await pick(f.texture);
     await modal.getByRole("button", { name: "添加贴图", exact: true }).click();
-    await modal.getByRole("button", { name: "添加变体", exact: true }).click();
-    await modal.getByLabel("skinid", { exact: true }).fill("1");
-    await modal.getByLabel("名称", { exact: true }).fill("第二张贴图");
+    await modal.getByLabel("skinid", { exact: true }).nth(1).waitFor();
+    assert.equal(await modal.getByLabel("skinid", { exact: true }).count(), 2);
+    await modal.getByLabel("名称", { exact: true }).nth(1).fill("第二张贴图");
     await modal
       .getByRole("button", { name: "移除贴图 0", exact: true })
       .click();
@@ -365,7 +371,7 @@ const { atomicJson } = require("../electron/services.cjs");
     await nav("设置");
     await screenshot({ path: "test-results/electron-settings.png" });
     await page.getByRole("button", { name: "浅色", exact: true }).click();
-    await nav("皮肤拓展");
+    await nav("NPC皮肤拓展");
     await screenshot({ path: "test-results/electron-light-skins.png" });
     // Escape and native-picker cancellation leave the session intact.
     await pick(null);

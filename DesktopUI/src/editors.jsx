@@ -1,6 +1,19 @@
-import React, { useState } from "react";
-import { removeTexture, nextSkinId } from "./model-resources.mjs";
+import React, { useEffect, useState } from "react";
+import {
+  removeTexture,
+  nextSkinId,
+  addTextures,
+  fillSkinVariants,
+  renameTexture,
+  setDefaultTexture,
+} from "./model-resources.mjs";
 import { SkinTargetFields } from "./skin-preview.jsx";
+import { required, skinTargetErrors, modelErrors } from "./validation.mjs";
+import { mergeModelFiles } from "./drop-import.mjs";
+import {
+  ENTITY_ANIMATIONS,
+  animationOptions,
+} from "./model-animation-options.mjs";
 import {
   Button,
   Field,
@@ -9,6 +22,8 @@ import {
   PathField,
   LocalImage,
   basename,
+  useValidation,
+  Select,
 } from "./ui.jsx";
 
 export function SkinEditor({ files, targets, onClose, onSave }) {
@@ -24,12 +39,16 @@ export function SkinEditor({ files, targets, onClose, onSave }) {
     [textureSlot, setSlot] = useState("skin_4");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const validation = useValidation({
+    ...skinTargetErrors(targetIdentifier, textureSlot),
+    author: required(author),
+    ...Object.fromEntries(
+      items.map((item, i) => [`name${i}`, required(item.name)]),
+    ),
+  });
   async function submit(e) {
     e?.preventDefault();
-    if (!author.trim() || items.some((i) => !i.name.trim())) {
-      setError("请填写人物名称和作者");
-      return;
-    }
+    if (!validation.check()) return;
     setBusy(true);
     try {
       await onSave(
@@ -64,6 +83,7 @@ export function SkinEditor({ files, targets, onClose, onSave }) {
       <form onSubmit={submit}>
         <ErrorBox>{error}</ErrorBox>
         <SkinTargetFields
+          validation={validation}
           targets={targets}
           value={targetIdentifier}
           slot={textureSlot}
@@ -80,6 +100,7 @@ export function SkinEditor({ files, targets, onClose, onSave }) {
               />
               <Field
                 label={`人物名称${items.length > 1 ? ` ${i + 1}` : ""}`}
+                {...validation.field(`name${i}`)}
                 hint={basename(item.path)}
               >
                 <input
@@ -98,7 +119,10 @@ export function SkinEditor({ files, targets, onClose, onSave }) {
             </div>
           ))}
         </div>
-        <Field label={items.length > 1 ? "统一作者" : "作者"}>
+        <Field
+          label={items.length > 1 ? "统一作者" : "作者"}
+          {...validation.field("author")}
+        >
           <input
             value={author}
             maxLength={120}
@@ -124,11 +148,17 @@ export function SkinEdit({ indices, skins, targets, onClose, onSave }) {
   );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const validation = useValidation(
+    single
+      ? {
+          name: required(name),
+          author: required(author),
+          ...skinTargetErrors(targetIdentifier, textureSlot),
+        }
+      : {},
+  );
   async function save() {
-    if (single && (!name.trim() || !author.trim())) {
-      setError("名称和作者不能为空");
-      return;
-    }
+    if (!validation.check()) return;
     setBusy(true);
     try {
       await onSave({
@@ -164,6 +194,7 @@ export function SkinEdit({ indices, skins, targets, onClose, onSave }) {
       <ErrorBox>{error}</ErrorBox>
       {single && (
         <SkinTargetFields
+          validation={validation}
           targets={targets}
           value={targetIdentifier}
           slot={textureSlot}
@@ -171,14 +202,14 @@ export function SkinEdit({ indices, skins, targets, onClose, onSave }) {
           onSlotChange={setSlot}
         />
       )}
-      <Field label="人物名称">
+      <Field label="人物名称" {...validation.field("name")}>
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
       </Field>
-      <Field label="作者">
+      <Field label="作者" {...validation.field("author")}>
         <input value={author} onChange={(e) => setAuthor(e.target.value)} />
       </Field>
     </Modal>
@@ -188,7 +219,7 @@ export function SkinEdit({ indices, skins, targets, onClose, onSave }) {
 export const blankModel = () => ({
   DisplayName: "",
   CustomName: "",
-  SourceLabel: "原版",
+  SourceLabel: "其他",
   GeoPath: "",
   PreviewImagePath: "",
   Textures: [],
@@ -204,13 +235,64 @@ export const blankModel = () => ({
   DeathAnimation: "",
   EnableAttachables: true,
 });
-export function ModelEditor({ model, index, onClose, onSave }) {
+export function ModelEditor({
+  model,
+  initialEntry,
+  index,
+  models,
+  onClose,
+  onSave,
+}) {
   const [entry, setEntry] = useState(() =>
-    structuredClone(model || blankModel()),
+    structuredClone(model || initialEntry || blankModel()),
   );
   const [tab, setTab] = useState("basic"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  // Preserve existing subsets, ordering and NPC built-in references unless opted in.
+  const [syncAnimationList, setSyncAnimationList] = useState(!model);
+  const animationKey = JSON.stringify(entry.AnimationFiles);
+  const [catalog, setCatalog] = useState({
+    key: "",
+    animations: [],
+    loading: true,
+    error: "",
+  });
+  useEffect(() => {
+    let active = true;
+    setCatalog({ key: animationKey, animations: [], loading: true, error: "" });
+    window.toolkit
+      .call("models.animations", { paths: JSON.parse(animationKey) })
+      .then((result) => {
+        if (!active) return;
+        setCatalog({
+          key: animationKey,
+          animations: result.animations,
+          loading: false,
+          error: "",
+        });
+      })
+      .catch((error) => {
+        if (active)
+          setCatalog({
+            key: animationKey,
+            animations: [],
+            loading: false,
+            error: error.message,
+          });
+      });
+    return () => {
+      active = false;
+    };
+  }, [animationKey]);
+  const saveEntry = {
+    ...entry,
+    AnimationList: syncAnimationList
+      ? catalog.animations.map((animation) => animation.id)
+      : entry.AnimationList,
+  };
+  const errors = modelErrors(saveEntry, models, index);
+  const validation = useValidation(errors);
   const update = (key, value) =>
     setEntry((previous) => ({ ...previous, [key]: value }));
   async function files(kind) {
@@ -220,13 +302,15 @@ export function ModelEditor({ model, index, onClose, onSave }) {
         multiple: true,
       });
       if (kind === "texture")
-        update("Textures", [
-          ...entry.Textures,
-          ...chosen.map((Path) => ({
-            Name: basename(Path).replace(/\.png$/i, ""),
-            Path,
-          })),
-        ]);
+        setEntry(
+          addTextures(
+            entry,
+            chosen.map((Path) => ({
+              Name: basename(Path).replace(/\.png$/i, ""),
+              Path,
+            })),
+          ),
+        );
       else
         update("AnimationFiles", [
           ...new Set([...entry.AnimationFiles, ...chosen]),
@@ -236,10 +320,26 @@ export function ModelEditor({ model, index, onClose, onSave }) {
     }
   }
   async function save() {
+    if (catalog.key !== animationKey || catalog.loading || catalog.error) {
+      setTab("animations");
+      setError(catalog.error || "动画文件正在读取，请稍候再保存");
+      return;
+    }
+    if (!validation.check()) {
+      const first = Object.keys(errors).find((key) => errors[key]);
+      setTab(
+        first.startsWith("SkinId")
+          ? "textures"
+          : first === "AnimationList"
+            ? "animations"
+            : "basic",
+      );
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      await onSave({ entry, index });
+      await onSave({ entry: saveEntry, index });
       onClose();
     } catch (e) {
       setError(e.message);
@@ -250,6 +350,12 @@ export function ModelEditor({ model, index, onClose, onSave }) {
   return (
     <Modal
       title={model ? "编辑模型" : "添加模型"}
+      onFiles={(paths) => {
+        const next = mergeModelFiles(entry, paths);
+        setEntry(next);
+        setError("");
+      }}
+      dropReport={(error) => setError(error.message)}
       description={
         entry.CustomName
           ? `customnpc:${entry.CustomName}_dlcnpc`
@@ -289,7 +395,7 @@ export function ModelEditor({ model, index, onClose, onSave }) {
       <ErrorBox>{error}</ErrorBox>
       {tab === "basic" && (
         <div className="form-grid">
-          <Field label="显示名称 *">
+          <Field label="显示名称 *" {...validation.field("DisplayName")}>
             <input
               autoFocus
               placeholder="例如：森林守卫"
@@ -298,8 +404,9 @@ export function ModelEditor({ model, index, onClose, onSave }) {
             />
           </Field>
           <Field
-            label="自定义名称 *"
-            hint="小写字母开头，仅限字母、数字和下划线；新模型不能与 NPC 内置模型重名"
+            label="自定义模型 ID *"
+            {...validation.field("CustomName")}
+            hint="填写模型 ID 的自定义部分，例如 forest_guard；无需填写 customnpc: 和 _dlcnpc 后缀。小写字母开头，仅含字母、数字和下划线。"
           >
             <input
               placeholder="例如：forest_guard"
@@ -307,18 +414,32 @@ export function ModelEditor({ model, index, onClose, onSave }) {
               onChange={(e) => update("CustomName", e.target.value)}
             />
           </Field>
-          <Field label="来源标注">
-            <input
+          <Field label="模型分类" hint="决定模型在 NPC 模型选择列表中的分类。">
+            <Select
               value={entry.SourceLabel}
-              onChange={(e) => update("SourceLabel", e.target.value)}
+              options={[
+                ...["原版", "其他", "功能性"].map((value) => ({
+                  value,
+                  label: value,
+                })),
+                ...(["原版", "其他", "功能性"].includes(entry.SourceLabel)
+                  ? []
+                  : [
+                      {
+                        value: entry.SourceLabel,
+                        label: `${entry.SourceLabel || "未分类"}（已有分类）`,
+                      },
+                    ]),
+              ]}
+              onChange={(value) => update("SourceLabel", value)}
             />
           </Field>
           <div className="two-fields">
-            <Field label="碰撞箱宽度">
+            <Field label="碰撞箱宽度" {...validation.field("CollisionWidth")}>
               <input
                 type="number"
-                min="0.01"
-                step="0.1"
+                min="0"
+                step="any"
                 value={entry.CollisionWidth}
                 onChange={(e) =>
                   update(
@@ -328,11 +449,11 @@ export function ModelEditor({ model, index, onClose, onSave }) {
                 }
               />
             </Field>
-            <Field label="碰撞箱高度">
+            <Field label="碰撞箱高度" {...validation.field("CollisionHeight")}>
               <input
                 type="number"
-                min="0.01"
-                step="0.1"
+                min="0"
+                step="any"
                 value={entry.CollisionHeight}
                 onChange={(e) =>
                   update(
@@ -346,6 +467,7 @@ export function ModelEditor({ model, index, onClose, onSave }) {
           <div className="full">
             <PathField
               label="模型文件 *"
+              {...validation.field("GeoPath")}
               kind="geo"
               value={entry.GeoPath}
               onChange={(v) => update("GeoPath", v)}
@@ -390,6 +512,23 @@ export function ModelEditor({ model, index, onClose, onSave }) {
           {entry.Textures.length === 0 && (
             <div className="inline-empty">至少添加一张 PNG 贴图。</div>
           )}
+          {entry.Textures.length > 0 && (
+            <Field
+              label="默认贴图"
+              hint="所选贴图会排到 skinid 0，皮肤变体编号同步调整。已有 NPC 的皮肤编号会沿用新顺序。"
+            >
+              <Select
+                value={0}
+                options={entry.Textures.map((texture, i) => ({
+                  value: i,
+                  label: `${i} · ${texture.Name || basename(texture.Path)}`,
+                }))}
+                onChange={(index) =>
+                  setEntry((previous) => setDefaultTexture(previous, index))
+                }
+              />
+            </Field>
+          )}
           {entry.Textures.map((texture, i) => (
             <div className="resource-row" key={`${i}-${texture.Path}`}>
               <span className="index-badge">{i}</span>
@@ -403,11 +542,8 @@ export function ModelEditor({ model, index, onClose, onSave }) {
                 value={texture.Name}
                 placeholder="名称"
                 onChange={(e) =>
-                  update(
-                    "Textures",
-                    entry.Textures.map((t, j) =>
-                      j === i ? { ...t, Name: e.target.value } : t,
-                    ),
+                  setEntry((previous) =>
+                    renameTexture(previous, i, e.target.value),
                   )
                 }
               />
@@ -443,10 +579,16 @@ export function ModelEditor({ model, index, onClose, onSave }) {
             >
               添加变体
             </Button>
+            <Button
+              disabled={nextSkinId(entry) < 0}
+              onClick={() => setEntry((previous) => fillSkinVariants(previous))}
+            >
+              补齐贴图变体
+            </Button>
           </div>
           {entry.SkinList.map((skin, i) => (
             <div className="variant-row" key={i}>
-              <Field label="skinid">
+              <Field label="skinid" {...validation.field(`SkinId${i}`)}>
                 <input
                   type="number"
                   min="0"
@@ -455,7 +597,15 @@ export function ModelEditor({ model, index, onClose, onSave }) {
                     update(
                       "SkinList",
                       entry.SkinList.map((x, j) =>
-                        i === j ? { ...x, SkinId: Number(e.target.value) } : x,
+                        i === j
+                          ? {
+                              ...x,
+                              SkinId:
+                                e.target.value === ""
+                                  ? ""
+                                  : Number(e.target.value),
+                            }
+                          : x,
                       ),
                     )
                   }
@@ -495,7 +645,10 @@ export function ModelEditor({ model, index, onClose, onSave }) {
           <div className="subheading">
             <div>
               <h3>动画资源文件</h3>
-              <p>选中的动画 JSON 会随拓展包一并导出。</p>
+              <p>
+                选中的动画 JSON 会随拓展包一并导出；拖入时请使用 .animation.json
+                或 .animations.json 后缀。
+              </p>
             </div>
             <Button icon="plus" onClick={() => files("animation")}>
               添加文件
@@ -519,40 +672,71 @@ export function ModelEditor({ model, index, onClose, onSave }) {
             </div>
           ))}
           <h3 className="separated">实体动画</h3>
+          <ErrorBox>{catalog.error}</ErrorBox>
+          {catalog.loading && <p className="muted">正在读取动画文件…</p>}
           <div className="form-grid">
-            {[
-              ["IdleAnimation", "idle", "默认 pass"],
-              ["WalkAnimation", "walk", "默认同 idle"],
-              ["WalkaAnimation", "walka", "默认同 walk"],
-              ["AttackAnimation", "attack", "默认 pass"],
-              ["DeathAnimation", "death", "默认死亡动画"],
-            ].map(([key, label, hint]) => (
-              <Field key={key} label={label}>
-                <input
+            {ENTITY_ANIMATIONS.map(([key, label, hint]) => (
+              <Field key={key} label={label} hint={hint}>
+                <Select
                   value={entry[key]}
-                  placeholder={hint}
-                  onChange={(e) => update(key, e.target.value)}
+                  disabled={catalog.loading || !!catalog.error}
+                  options={animationOptions(
+                    catalog.animations,
+                    entry[key],
+                    hint,
+                  )}
+                  onChange={(value) => update(key, value)}
                 />
               </Field>
             ))}
           </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={syncAnimationList}
+              onChange={(event) => {
+                update("AnimationList", saveEntry.AnimationList);
+                setSyncAnimationList(event.target.checked);
+              }}
+            />
+            跟随动画文件更新可选列表
+          </label>
+          {!syncAnimationList && (
+            <Field
+              label="当前保留的可选动画列表"
+              hint="保留原列表的顺序、手工筛选和内置动画引用。勾选上方开关后，保存时将使用文件中的全部动画 ID。"
+            >
+              <p className="code">
+                {entry.AnimationList.join("、") || "（空列表）"}
+              </p>
+            </Field>
+          )}
           <Field
             label="可选动画列表"
-            hint="每行填写一个动画 ID，用于 NPC 动画选择列表"
+            {...validation.field("AnimationList")}
+            hint={
+              syncAnimationList
+                ? "自动汇总已导入动画文件中的动画 ID，导出为 NPC 可选动画列表。"
+                : "以下是文件中的全部动画，供实体动画下拉框选择；保存时保留上方的原列表。"
+            }
           >
-            <textarea
-              rows="4"
-              value={entry.AnimationList.join("\n")}
-              onChange={(e) =>
-                update("AnimationList", e.target.value.split("\n"))
-              }
-              onBlur={() =>
-                update(
-                  "AnimationList",
-                  entry.AnimationList.map((x) => x.trim()).filter(Boolean),
-                )
-              }
-            />
+            <div
+              className="model-animation-catalog"
+              role="list"
+              aria-label="动画文件中的动画列表"
+            >
+              {!catalog.loading && !catalog.animations.length && (
+                <p className="muted">
+                  尚未导入动画文件；实体动画可使用默认或 pass。
+                </p>
+              )}
+              {catalog.animations.map((animation) => (
+                <div role="listitem" key={animation.id}>
+                  <span className="code">{animation.id}</span>
+                  <small className="muted">{basename(animation.file)}</small>
+                </div>
+              ))}
+            </div>
           </Field>
         </>
       )}

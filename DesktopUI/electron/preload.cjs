@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 const methods = new Set([
   "window.state",
   "window.control",
+  "window.confirm-close",
   "bootstrap",
   "state",
   "clipboard.write",
@@ -11,6 +12,7 @@ const methods = new Set([
   "skins.clear",
   "skins.import",
   "models.save",
+  "models.animations",
   "models.delete",
   "models.clear",
   "models.move",
@@ -21,6 +23,7 @@ const methods = new Set([
     ),
   ),
   "project.open",
+  "project.new",
   "project.save",
   "files.pick",
   "files.directory",
@@ -62,5 +65,10 @@ contextBridge.exposeInMainWorld("toolkit", {
     const handler = (_, value) => listener(value);
     ipcRenderer.on("window-state", handler);
     return () => ipcRenderer.removeListener("window-state", handler);
+  },
+  onCloseRequested: (listener) => {
+    const handler = (_, value) => listener(value);
+    ipcRenderer.on("close-requested", handler);
+    return () => ipcRenderer.removeListener("close-requested", handler);
   },
 });

@@ -166,6 +166,8 @@ export function Select({
   const id = useId();
   const trigger = useRef(null);
   const menu = useRef(null);
+  const searchInput = useRef(null);
+  const [query, setQuery] = useState("");
   const search = useRef({ text: "", time: 0 });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -173,12 +175,25 @@ export function Select({
   const enabled = options
     .map((option, index) => (option.disabled ? -1 : index))
     .filter((index) => index >= 0);
+  const matching = options
+    .map((option, index) => ({ option, index }))
+    .filter(({ option }) =>
+      `${option.label} ${option.value}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()),
+    );
+  const matchingEnabled = matching
+    .filter(({ option }) => !option.disabled)
+    .map(({ index }) => index);
+  const activeIndex = matchingEnabled.includes(active)
+    ? active
+    : (matchingEnabled[0] ?? -1);
 
   function position() {
     const rect = trigger.current.getBoundingClientRect();
     const below = innerHeight - rect.bottom - 12;
     const above = rect.top - 12;
-    const desiredHeight = Math.min(292, options.length * 36 + 12);
+    const desiredHeight = Math.min(336, options.length * 36 + 64);
     const upward = below < desiredHeight && above > below;
     const height = Math.max(0, Math.min(desiredHeight, upward ? above : below));
     const context = document.createElement("canvas").getContext("2d");
@@ -196,6 +211,7 @@ export function Select({
     Object.assign(menu.current.style, {
       width: `${width}px`,
       maxHeight: `${height}px`,
+      height: `${height}px`,
       left: `${Math.max(12, Math.min(rect.left, innerWidth - width - 12))}px`,
       top: `${Math.max(12, Math.min(upward ? rect.top - height - 6 : rect.bottom + 6, innerHeight - height - 12))}px`,
     });
@@ -204,6 +220,7 @@ export function Select({
   function close() {
     menu.current.hidePopover();
     setOpen(false);
+    setQuery("");
     search.current = { text: "", time: 0 };
   }
 
@@ -214,13 +231,19 @@ export function Select({
   ) {
     if (trigger.current.matches(":disabled") || enabled.length === 0) return;
     position();
+    setQuery("");
     setActive(index ?? -1);
     menu.current.showPopover();
     setOpen(true);
   }
 
   function choose(index) {
-    if (!options[index] || options[index].disabled) return;
+    if (
+      !options[index] ||
+      options[index].disabled ||
+      (open && !matchingEnabled.includes(index))
+    )
+      return;
     close();
     trigger.current.focus();
     if (options[index].value !== value) onChange(options[index].value);
@@ -230,11 +253,18 @@ export function Select({
     const popup = menu.current;
     const sync = (event) => {
       setOpen(event.newState === "open");
-      if (event.newState === "closed") search.current = { text: "", time: 0 };
+      if (event.newState === "closed") {
+        search.current = { text: "", time: 0 };
+        setQuery("");
+      }
     };
     popup.addEventListener("toggle", sync);
     return () => popup.removeEventListener("toggle", sync);
   }, []);
+
+  useEffect(() => {
+    if (open) searchInput.current.focus({ preventScroll: true });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -264,25 +294,34 @@ export function Select({
   useEffect(() => {
     if (open)
       menu.current
-        .querySelector(`[data-index="${active}"]`)
+        .querySelector(`[data-index="${activeIndex}"]`)
         ?.scrollIntoView({ block: "nearest" });
-  }, [active, open]);
+  }, [activeIndex, open]);
 
   function keyDown(event) {
+    if (
+      event.isComposing ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229
+    )
+      return;
     const visible = menu.current.matches(":popover-open");
+    const typing = event.target === searchInput.current;
+    const navigable = visible ? matchingEnabled : enabled;
+    if (typing && ["Home", "End", " "].includes(event.key)) return;
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
-      const current = enabled.indexOf(active);
+      const current = navigable.indexOf(activeIndex);
       const next =
         event.key === "Home"
-          ? enabled[0]
+          ? navigable[0]
           : event.key === "End"
-            ? enabled.at(-1)
-            : enabled[
+            ? navigable.at(-1)
+            : navigable[
                 Math.max(
                   0,
                   Math.min(
-                    enabled.length - 1,
+                    navigable.length - 1,
                     current + (event.key === "ArrowDown" ? 1 : -1),
                   ),
                 )
@@ -298,15 +337,21 @@ export function Select({
         );
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      if (visible) choose(active);
+      event.stopPropagation();
+      if (visible) choose(activeIndex);
       else expand();
     } else if (event.key === "Escape" && visible) {
       event.preventDefault();
       event.stopPropagation();
       close();
+      trigger.current.focus();
     } else if (event.key === "Tab") {
-      if (visible) close();
+      if (visible) {
+        trigger.current.focus();
+        close();
+      }
     } else if (
+      !typing &&
       event.key.length === 1 &&
       !event.ctrlKey &&
       !event.metaKey &&
@@ -320,7 +365,7 @@ export function Select({
       search.current = { text, time: now };
       const repeated = [...text].every((char) => char === text[0]);
       const prefix = repeated ? text[0] : text;
-      const start = visible ? active : selected;
+      const start = visible ? activeIndex : selected;
       const candidates = [
         ...enabled.filter((i) => i > start),
         ...enabled.filter((i) => i <= start),
@@ -347,7 +392,7 @@ export function Select({
         aria-expanded={open}
         aria-controls={id}
         aria-activedescendant={
-          open && active >= 0 ? `${id}-${active}` : undefined
+          open && activeIndex >= 0 ? `${id}-${activeIndex}` : undefined
         }
         className="select-trigger"
         disabled={disabled || enabled.length === 0}
@@ -373,40 +418,121 @@ export function Select({
       </button>
       <div
         ref={menu}
-        id={id}
         popover="auto"
-        role="listbox"
         className="select-menu"
-        aria-label={labelProps["aria-label"]}
-        aria-labelledby={labelProps["aria-labelledby"]}
+        onBlurCapture={(event) => {
+          if (
+            !menu.current.contains(event.relatedTarget) &&
+            event.relatedTarget !== trigger.current
+          )
+            close();
+        }}
       >
-        {options.map((option, index) => (
-          <div
-            id={`${id}-${index}`}
-            key={option.value}
-            role="option"
-            aria-selected={index === selected}
-            aria-disabled={option.disabled || undefined}
-            data-index={index}
-            data-active={index === active}
-            className="select-option"
-            title={option.label}
-            onPointerDown={(event) => event.preventDefault()}
-            onPointerMove={() => {
-              if (!option.disabled) setActive(index);
-            }}
-            onClick={() => choose(index)}
-          >
-            <span>{option.label}</span>
-            {index === selected && <Icon name="check" size={16} />}
+        <div className="select-search">
+          <Icon name="search" size={15} />
+          <input
+            ref={searchInput}
+            type="search"
+            aria-label="搜索选项"
+            aria-controls={id}
+            aria-activedescendant={
+              open && activeIndex >= 0 ? `${id}-${activeIndex}` : undefined
+            }
+            placeholder="搜索名称或 ID…"
+            autoComplete="off"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={keyDown}
+          />
+          {query && (
+            <button
+              type="button"
+              className="bare"
+              aria-label="清空选项搜索"
+              onClick={() => {
+                setQuery("");
+                searchInput.current.focus();
+              }}
+            >
+              <Icon name="close" size={14} />
+            </button>
+          )}
+        </div>
+        <div
+          id={id}
+          role="listbox"
+          className="select-options"
+          aria-label={labelProps["aria-label"]}
+          aria-labelledby={labelProps["aria-labelledby"]}
+        >
+          {matching.map(({ option, index }) => (
+            <div
+              id={`${id}-${index}`}
+              key={option.value}
+              role="option"
+              aria-selected={index === selected}
+              aria-disabled={option.disabled || undefined}
+              data-index={index}
+              data-active={index === activeIndex}
+              className="select-option"
+              title={option.label}
+              onPointerDown={(event) => event.preventDefault()}
+              onPointerMove={() => {
+                if (!option.disabled) setActive(index);
+              }}
+              onClick={() => choose(index)}
+            >
+              <span>{option.label}</span>
+              {index === selected && <Icon name="check" size={16} />}
+            </div>
+          ))}
+        </div>
+        {!matching.length && (
+          <div className="select-empty" role="status">
+            没有匹配的选项
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 }
 
-export function Field({ label, hint, children, className = "" }) {
+export function useValidation(errors) {
+  const [attempted, setAttempted] = useState(false);
+  const [touched, setTouched] = useState({});
+  return {
+    field(key) {
+      const touch = () =>
+        setTouched((old) => (old[key] ? old : { ...old, [key]: true }));
+      return {
+        error: attempted || touched[key] ? errors[key] : "",
+        onChangeCapture: touch,
+        onBlurCapture: touch,
+      };
+    },
+    check() {
+      setAttempted(true);
+      const valid = !Object.values(errors).some(Boolean);
+      if (!valid)
+        requestAnimationFrame(() => {
+          const scope =
+            document.querySelector("dialog[open]") ||
+            document.querySelector("main");
+          scope?.querySelector('[aria-invalid="true"]')?.focus();
+        });
+      return valid;
+    },
+  };
+}
+
+export function Field({
+  label,
+  hint,
+  error,
+  children,
+  className = "",
+  ...props
+}) {
   const id = useId();
   const bind = (child) => {
     if (!React.isValidElement(child)) return child;
@@ -416,7 +542,11 @@ export function Field({ label, hint, children, className = "" }) {
     )
       return React.cloneElement(child, {
         "aria-labelledby": id,
-        "aria-describedby": hint ? id + "-hint" : undefined,
+        "aria-invalid": error ? true : undefined,
+        "aria-describedby":
+          [hint && id + "-hint", error && id + "-error"]
+            .filter(Boolean)
+            .join(" ") || undefined,
       });
     if (typeof child.type === "string" && child.props.children)
       return React.cloneElement(
@@ -427,10 +557,15 @@ export function Field({ label, hint, children, className = "" }) {
     return child;
   };
   return (
-    <div className={`field ${className}`}>
+    <div className={`field ${className}`} {...props}>
       <span id={id}>{label}</span>
       {React.Children.map(children, bind)}
       {hint && <small id={id + "-hint"}>{hint}</small>}
+      {error && (
+        <small className="field-error" id={id + "-error"}>
+          {error}
+        </small>
+      )}
     </div>
   );
 }
@@ -490,6 +625,121 @@ export function Search({ value, onChange, placeholder = "搜索名称…" }) {
     </div>
   );
 }
+export function HelpButton({ page, report }) {
+  const [opening, setOpening] = useState(false);
+  return (
+    <Button
+      icon="info"
+      disabled={opening}
+      title="在浏览器中打开帮助文档"
+      onClick={async () => {
+        setOpening(true);
+        try {
+          await window.toolkit.call("web.open", { kind: "help", page });
+        } catch (error) {
+          report(new Error(`无法打开帮助文档：${error.message}`));
+        } finally {
+          setOpening(false);
+        }
+      }}
+    >
+      帮助
+    </Button>
+  );
+}
+
+export function FileDropZone({
+  as: Tag = "div",
+  onFiles,
+  report,
+  disabled = false,
+  blockWhenModal = false,
+  hint = "松开以添加文件",
+  className = "",
+  children,
+  ...props
+}) {
+  const [dragging, setDragging] = useState(false);
+  const depth = useRef(0),
+    pending = useRef(false),
+    alive = useRef(true);
+  const handleFiles = useRef(onFiles);
+  handleFiles.current = onFiles;
+  useEffect(() => {
+    alive.current = true;
+    const reset = () => {
+      depth.current = 0;
+      setDragging(false);
+    };
+    window.addEventListener("drop", reset, true);
+    window.addEventListener("dragend", reset);
+    return () => {
+      alive.current = false;
+      window.removeEventListener("drop", reset, true);
+      window.removeEventListener("dragend", reset);
+    };
+  }, []);
+  const blocked = () =>
+    disabled ||
+    pending.current ||
+    document.querySelector('dialog[open][data-busy="true"]') ||
+    (blockWhenModal && document.querySelector("dialog[open]"));
+  const isFiles = (event) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+  return (
+    <Tag
+      {...props}
+      className={`file-drop-zone ${dragging ? "drag-active" : ""} ${className}`}
+      onDragEnter={(event) => {
+        if (!isFiles(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!blocked()) {
+          depth.current++;
+          setDragging(true);
+        }
+      }}
+      onDragOver={(event) => {
+        if (!isFiles(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = blocked() ? "none" : "copy";
+      }}
+      onDragLeave={(event) => {
+        event.stopPropagation();
+        depth.current = Math.max(0, depth.current - 1);
+        if (!depth.current) setDragging(false);
+      }}
+      onDrop={async (event) => {
+        if (!isFiles(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        depth.current = 0;
+        setDragging(false);
+        if (blocked()) return;
+        pending.current = true;
+        try {
+          const paths = await window.toolkit.droppedFiles(
+            Array.from(event.dataTransfer.files),
+          );
+          if (alive.current) await handleFiles.current(paths);
+        } catch (error) {
+          if (alive.current) report(error);
+        } finally {
+          pending.current = false;
+        }
+      }}
+    >
+      {dragging && (
+        <div className="drop-feedback" role="status">
+          <span>{hint}</span>
+        </div>
+      )}
+      {children}
+    </Tag>
+  );
+}
+
 export function Intro({ title, subtitle, children }) {
   return (
     <div className="intro">
@@ -509,11 +759,15 @@ export function Modal({
   onClose,
   wide = false,
   busy = false,
+  initialFocus,
+  onFiles,
+  dropReport,
 }) {
   const ref = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
     ref.current.showModal();
+    if (initialFocus) ref.current.querySelector(initialFocus)?.focus();
     return () => {
       previous?.focus();
     };
@@ -522,12 +776,10 @@ export function Modal({
     <dialog
       ref={ref}
       className={`modal ${wide ? "wide" : ""}`}
+      data-busy={busy}
       onCancel={(e) => {
         e.preventDefault();
         if (!busy) onClose();
-      }}
-      onClick={(e) => {
-        if (e.target === ref.current && !busy) onClose();
       }}
     >
       <div className="modal-header">
@@ -542,7 +794,19 @@ export function Modal({
           disabled={busy}
         />
       </div>
-      <div className="modal-body">{children}</div>
+      {onFiles ? (
+        <FileDropZone
+          className="modal-body"
+          onFiles={onFiles}
+          report={dropReport}
+          disabled={busy}
+          hint="松开以添加模型、贴图或动画文件"
+        >
+          {children}
+        </FileDropZone>
+      ) : (
+        <div className="modal-body">{children}</div>
+      )}
       {footer && <div className="modal-footer">{footer}</div>}
     </dialog>
   );
@@ -587,6 +851,7 @@ export function PathField({
   kind,
   multiple = false,
   hint,
+  ...fieldProps
 }) {
   const [error, setError] = useState("");
   async function pick() {
@@ -598,9 +863,36 @@ export function PathField({
       setError(e.message);
     }
   }
+  function acceptDrop(files) {
+    const extensions = {
+      skin: ["png"],
+      texture: ["png"],
+      geo: ["json"],
+      animation: ["json"],
+      background: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
+      sound: ["ogg"],
+      python: ["py"],
+      executable: ["exe"],
+    }[kind];
+    if (
+      !extensions ||
+      files.some(
+        (file) => !extensions.includes(file.split(".").pop().toLowerCase()),
+      )
+    )
+      throw new Error(`拖入的文件类型不适用于“${label}”`);
+    if (!multiple && files.length !== 1)
+      throw new Error(`“${label}”每次只能选择一个文件`);
+    setError("");
+    return onChange(multiple ? files : files[0]);
+  }
   return (
-    <div>
-      <Field label={label} hint={hint}>
+    <FileDropZone
+      onFiles={acceptDrop}
+      report={(error) => setError(error.message)}
+      hint={`松开以设置${label}`}
+    >
+      <Field label={label} hint={hint} {...fieldProps}>
         <div className="path-field">
           <input
             value={value || ""}
@@ -612,9 +904,10 @@ export function PathField({
             选择
           </Button>
         </div>
+        <small className="drop-field-hint">也可将文件拖到此处</small>
       </Field>
       <ErrorBox>{error}</ErrorBox>
-    </div>
+    </FileDropZone>
   );
 }
 export const basename = (path) => path.split(/[\\/]/).pop() || "";

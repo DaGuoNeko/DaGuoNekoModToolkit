@@ -1,0 +1,45 @@
+{
+  "DisplayName": "BB 测试机器人",
+  "CustomName": "bb_test_robot",
+  "SourceLabel": "Blockbench 测试",
+  "GeoPath": "C:\\Users\\cat\\Desktop\\newexe\\DaGuoNekoModToolkit\\测试素材\\bb_test_robot\\bb_test_robot.geo.json",
+  "PreviewImagePath": "C:\\Users\\cat\\Desktop\\newexe\\DaGuoNekoModToolkit\\测试素材\\bb_test_robot\\preview.png",
+  "Textures": [
+    {
+      "Name": "橙色机甲",
+      "Path": "C:\\Users\\cat\\Desktop\\newexe\\DaGuoNekoModToolkit\\测试素材\\bb_test_robot\\robot_orange.png"
+    },
+    {
+      "Name": "蓝色机甲",
+      "Path": "C:\\Users\\cat\\Desktop\\newexe\\DaGuoNekoModToolkit\\测试素材\\bb_test_robot\\robot_blue.png"
+    }
+  ],
+  "AnimationFiles": [
+    "C:\\Users\\cat\\Desktop\\newexe\\DaGuoNekoModToolkit\\测试素材\\bb_test_robot\\bb_test_robot.animation.json"
+  ],
+  "AnimationList": [
+    "animation.bb_test_robot.idle",
+    "animation.bb_test_robot.walk",
+    "animation.bb_test_robot.attack"
+  ],
+  "SkinList": [
+    {
+      "SkinId": 0,
+      "Name": "橙色机甲",
+      "By": "Blockbench 测试"
+    },
+    {
+      "SkinId": 1,
+      "Name": "蓝色机甲",
+      "By": "Blockbench 测试"
+    }
+  ],
+  "CollisionWidth": 0.9,
+  "CollisionHeight": 1.85,
+  "IdleAnimation": "animation.bb_test_robot.idle",
+  "WalkAnimation": "animation.bb_test_robot.walk",
+  "WalkaAnimation": "animation.bb_test_robot.walk",
+  "AttackAnimation": "animation.bb_test_robot.attack",
+  "DeathAnimation": "",
+  "EnableAttachables": false
+}

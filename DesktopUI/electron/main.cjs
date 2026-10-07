@@ -17,6 +17,13 @@ const { pathToFileURL } = require("node:url");
 const { spawn } = require("node:child_process");
 const { Backend } = require("./backend.cjs");
 const WEB_TOOL_URL = "https://3dtext.easecation.net/";
+const REPOSITORY_URL = "https://github.com/DaGuoNeko/DaGuoNekoModToolkit";
+const HELP_URLS = new Map([
+  ["sounds", "https://www.yuque.com/maomaozi-hldyx/mcmiao/bhe4o3nlwgfak5oc"],
+  ["textures", "https://www.yuque.com/maomaozi-hldyx/mcmiao/gouhuyudcu56chm0"],
+  ["models", "https://www.yuque.com/maomaozi-hldyx/mcmiao/pt0vch3m18p8v745"],
+  ["skins", "https://www.yuque.com/maomaozi-hldyx/mcmiao/fdlh930gtv0ufgzo"],
+]);
 const {
   Settings,
   Studio,
@@ -47,9 +54,11 @@ const studio = new Studio(
 const allowedImages = new Set();
 const allowedAudio = new Set();
 const allowedOpen = new Set();
+const allowedProjects = new Set();
 let win,
   backend,
   closing = false,
+  closeRequested = false,
   hasEntries = false,
   busy = 0;
 
@@ -119,6 +128,7 @@ async function pick(kind, multiple = false) {
   for (const file of result.filePaths) {
     approveImage(file);
     if (kind === "sound") allowedAudio.add(key(file));
+    if (kind === "project") allowedProjects.add(key(file));
   }
   return result.canceled ? [] : result.filePaths;
 }
@@ -214,12 +224,14 @@ async function toolsRun(args) {
 }
 const coreMethods = new Set([
   "state",
+  "project.new",
   "skins.add",
   "skins.update",
   "skins.delete",
   "skins.clear",
   "skins.import",
   "models.save",
+  "models.animations",
   "models.delete",
   "models.clear",
   "models.move",
@@ -244,6 +256,17 @@ async function dispatch(method, args) {
   switch (method) {
     case "window.state":
       return { maximized: win.isMaximized() };
+    case "window.confirm-close": {
+      if (!["cancel", "exit"].includes(args.action))
+        throw new Error("不支持的退出操作");
+      if (!closeRequested) return false;
+      closeRequested = false;
+      if (args.action === "exit") {
+        closing = true;
+        setImmediate(() => win.close());
+      }
+      return true;
+    }
     case "window.control": {
       switch (args.action) {
         case "minimize":
@@ -281,7 +304,13 @@ async function dispatch(method, args) {
     case "files.directory":
       return directory(settings.value.LastOutputDir);
     case "project.open": {
-      const paths = await pick("project");
+      if (
+        args.path !== undefined &&
+        (typeof args.path !== "string" || !allowedProjects.has(key(args.path)))
+      )
+        throw new Error("工程文件未由用户选择或拖入");
+      const paths =
+        args.path === undefined ? await pick("project") : [args.path];
       if (!paths.length) return { canceled: true };
       busy++;
       try {
@@ -426,6 +455,10 @@ async function dispatch(method, args) {
     case "web.open": {
       if (args.kind === "3d") {
         await shell.openExternal(WEB_TOOL_URL);
+      } else if (args.kind === "repository") {
+        await shell.openExternal(REPOSITORY_URL);
+      } else if (args.kind === "help" && HELP_URLS.has(args.page)) {
+        await shell.openExternal(HELP_URLS.get(args.page));
       } else throw new Error("不支持的链接");
       return true;
     }
@@ -491,13 +524,38 @@ else {
       ipcMain.handle("dropped-files", async (event, paths) => {
         if (
           event.sender !== win.webContents ||
-          event.senderFrame !== win.webContents.mainFrame
+          event.senderFrame !== win.webContents.mainFrame ||
+          !event.senderFrame.url.startsWith("app://mcnpc/")
         )
           throw new Error("非法调用来源");
-        const files = paths.filter(
-          (p) => typeof p === "string" && /\.png$/i.test(p),
+        if (!Array.isArray(paths) || paths.length === 0 || paths.length > 1000)
+          throw new Error("请拖入 1–1000 个本地文件");
+        const supported = new Set(
+          Object.values(filters).flatMap((items) =>
+            items.flatMap((item) => item.extensions),
+          ),
         );
-        for (const file of files) approveImage(file);
+        const files = [];
+        const seen = new Set();
+        for (const file of paths) {
+          if (
+            typeof file !== "string" ||
+            !path.isAbsolute(file) ||
+            !supported.has(path.extname(file).slice(1).toLowerCase())
+          )
+            throw new Error("不支持的拖入文件：" + String(file));
+          if (!(await fs.stat(file)).isFile())
+            throw new Error("请拖入文件，不支持文件夹：" + path.basename(file));
+          if (!seen.has(key(file))) {
+            files.push(file);
+            seen.add(key(file));
+          }
+        }
+        for (const file of files) {
+          if (/\.(png|jpe?g|webp|bmp|gif)$/i.test(file)) approveImage(file);
+          if (/\.ogg$/i.test(file)) allowedAudio.add(key(file));
+          if (/\.dgnproject$/i.test(file)) allowedProjects.add(key(file));
+        }
         return files;
       });
       win = new BrowserWindow({
@@ -538,25 +596,8 @@ else {
         )
           return;
         event.preventDefault();
-        dialog
-          .showMessageBox(win, {
-            type: "question",
-            title: "关闭工具箱",
-            message: busy
-              ? "任务仍在运行，确定退出？"
-              : "列表保存在当前会话中，关闭后将清空。",
-            detail:
-              "请先保存工程，或导出需要保留的拓展包。工程会同时保存列表和资源文件。",
-            buttons: ["继续编辑", "退出"],
-            defaultId: 0,
-            cancelId: 0,
-          })
-          .then(({ response }) => {
-            if (response === 1) {
-              closing = true;
-              win.close();
-            }
-          });
+        closeRequested = true;
+        win.webContents.send("close-requested", { busy: busy > 0 });
       });
       nativeTheme.on("updated", emitTheme);
       await win.loadURL("app://mcnpc/index.html");
@@ -566,7 +607,8 @@ else {
       app.quit();
     });
   app.on("window-all-closed", () => app.quit());
-  app.on("before-quit", () => {
+  // Only release services once quitting is confirmed; a close prompt may cancel app.quit().
+  app.on("will-quit", () => {
     if (backend) backend.close();
     cancelRunningTools();
   });

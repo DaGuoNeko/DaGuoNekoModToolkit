@@ -1,9 +1,34 @@
 import React, { useEffect, useState } from "react";
+import { Button, Modal, ErrorBox } from "./ui.jsx";
 
 // These controls belong to the page so <dialog>'s backdrop also covers them.
 export function WindowControls() {
   const [maximized, setMaximized] = useState(false);
   const [error, setError] = useState("");
+  const [closeRequest, setCloseRequest] = useState(null);
+  const [closeError, setCloseError] = useState("");
+  const [responding, setResponding] = useState(false);
+  useEffect(
+    () =>
+      window.toolkit.onCloseRequested((request) => {
+        setCloseError("");
+        setCloseRequest(request);
+      }),
+    [],
+  );
+  async function respondToClose(action) {
+    if (responding) return;
+    setResponding(true);
+    setCloseError("");
+    try {
+      await window.toolkit.call("window.confirm-close", { action });
+      setCloseRequest(null);
+    } catch (error) {
+      setCloseError(error.message);
+    } finally {
+      setResponding(false);
+    }
+  }
   useEffect(() => {
     let mounted = true;
     const unsubscribe = window.toolkit.onWindowState((state) =>
@@ -73,6 +98,43 @@ export function WindowControls() {
         <div className="window-control-error" role="alert">
           {error}
         </div>
+      )}
+      {closeRequest && (
+        <Modal
+          title="关闭工具箱"
+          initialFocus="[data-close-cancel]"
+          onClose={() => respondToClose("cancel")}
+          busy={responding}
+          footer={
+            <>
+              <Button
+                data-close-cancel
+                primary
+                disabled={responding}
+                onClick={() => respondToClose("cancel")}
+              >
+                继续编辑
+              </Button>
+              <Button
+                danger
+                disabled={responding}
+                onClick={() => respondToClose("exit")}
+              >
+                退出
+              </Button>
+            </>
+          }
+        >
+          <p>
+            {closeRequest.busy
+              ? "任务仍在运行，退出会中断当前操作。"
+              : "列表保存在当前会话中，关闭后将清空。"}
+          </p>
+          <p className="muted close-confirm-detail">
+            请先保存工程，或导出需要保留的拓展包。工程会同时保存列表和资源文件。
+          </p>
+          <ErrorBox>{closeError}</ErrorBox>
+        </Modal>
       )}
     </>
   );

@@ -48,7 +48,7 @@ const ogg = require("./ogg-fixture.cjs");
         .getByRole("button", { name: label, exact: true })
         .click();
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     const exports = {};
     for (const [kind, label, file, name] of [

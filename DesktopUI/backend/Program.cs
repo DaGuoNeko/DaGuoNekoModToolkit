@@ -88,7 +88,25 @@ namespace NpcSkinMaker
             switch (method)
             {
                 case "state": return State();
+                case "project.new":
+                    string kind = (string)args["kind"];
+                    switch (kind)
+                    {
+                        case "skins": Skins.ClearSkins(); break;
+                        case "models": Models.Clear(); break;
+                        case "textures":
+                        case "sounds":
+                            AssetPack fresh;
+                            do { fresh = AssetPack.Create(kind); }
+                            while (fresh.ProviderId == Textures.ProviderId || fresh.ProviderId == Sounds.ProviderId);
+                            if (kind == "textures") Textures = fresh; else Sounds = fresh;
+                            break;
+                        default: throw new ArgumentException("不支持的项目类型");
+                    }
+                    return new { state = State() };
                 case "skin.targets": return NpcCompatibility.SkinTargets;
+                case "models.animations":
+                    return ModelAnimationCatalog.Read(args["paths"]?.ToObject<List<string>>() ?? new List<string>());
                 case "skins.add":
                     var items = args["items"] as JArray ?? throw new ArgumentException("缺少皮肤列表");
                     var added = 0;

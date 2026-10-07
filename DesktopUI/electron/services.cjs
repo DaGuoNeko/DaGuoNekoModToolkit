@@ -9,6 +9,9 @@ const defaults = {
   ThemeSat: 85,
   LastOutputDir: "",
   BgImagePath: "",
+  BgImageOpacity: 0.06,
+  BgImageBlur: 0,
+  BgImageScale: 1,
   McPath: "",
   ModScriptPath: "",
   ModOutDir: "",
@@ -57,6 +60,24 @@ class Settings {
     }
     if (!["Light", "Dark", "System"].includes(this.value.AppearanceMode))
       this.value.AppearanceMode = "System";
+    if (
+      !Number.isFinite(this.value.BgImageOpacity) ||
+      this.value.BgImageOpacity < 0 ||
+      this.value.BgImageOpacity > 1
+    )
+      this.value.BgImageOpacity = defaults.BgImageOpacity;
+    if (
+      !Number.isFinite(this.value.BgImageBlur) ||
+      this.value.BgImageBlur < 0 ||
+      this.value.BgImageBlur > 30
+    )
+      this.value.BgImageBlur = defaults.BgImageBlur;
+    if (
+      !Number.isFinite(this.value.BgImageScale) ||
+      this.value.BgImageScale < 1 ||
+      this.value.BgImageScale > 2
+    )
+      this.value.BgImageScale = defaults.BgImageScale;
     return this.value;
   }
   update(patch) {
@@ -71,6 +92,24 @@ class Settings {
       }
       if (!["Light", "Dark", "System"].includes(next.AppearanceMode))
         throw new Error("无效的界面模式");
+      if (
+        !Number.isFinite(next.BgImageOpacity) ||
+        next.BgImageOpacity < 0 ||
+        next.BgImageOpacity > 1
+      )
+        throw new Error("背景图片不透明度必须在 0–1 之间");
+      if (
+        !Number.isFinite(next.BgImageBlur) ||
+        next.BgImageBlur < 0 ||
+        next.BgImageBlur > 30
+      )
+        throw new Error("背景模糊度必须在 0–30 之间");
+      if (
+        !Number.isFinite(next.BgImageScale) ||
+        next.BgImageScale < 1 ||
+        next.BgImageScale > 2
+      )
+        throw new Error("背景缩放必须在 100%–200% 之间");
       await atomicJson(this.file, next);
       this.value = next;
       return next;
@@ -252,13 +291,22 @@ async function globalConfigs(roaming, channel, player) {
   const folder =
     channel === "测试端" ? "MinecraftPE_Netease" : "MinecraftPC_Netease_PB";
   const root = path.join(roaming, folder, "storge", "stream", "users");
-  const players = [];
-  for (const name of await listDirectories(root))
-    if (await exists(path.join(root, name, "config"))) players.push(name);
+  const directories = new Map();
+  let directConfig;
+  for (const name of await listDirectories(root)) {
+    if (name.toLowerCase() === "config") {
+      directConfig = { name, directory: path.join(root, name) };
+    } else if (await exists(path.join(root, name, "config"))) {
+      directories.set(name, path.join(root, name, "config"));
+    }
+  }
+  // Keep the existing player default; users/config stores files directly.
+  if (directConfig) directories.set(directConfig.name, directConfig.directory);
+  const players = [...directories.keys()];
   const selected = players.includes(player) ? player : players[0];
   const entries = [];
   if (selected) {
-    const directory = path.join(root, selected, "config");
+    const directory = directories.get(selected);
     for (const file of await fs.readdir(directory, { withFileTypes: true })) {
       if (!file.isFile()) continue;
       const location = path.join(directory, file.name),

@@ -1,6 +1,6 @@
 {
   "name": "daguoneko-mod-toolkit",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "private": true,
   "description": "大果喵模组工具箱 — DaGuoNeko Mod Toolkit",
   "author": "DaGuoNeko",
@@ -14,9 +14,15 @@
     "test": "npm run build && node --test tests/*.test.cjs",
     "test:ui": "npm run build && node tests/ui-smoke.cjs",
     "test:assets": "npm run build && node tests/asset-ui.cjs",
+    "test:validation": "npm run build && node tests/validation-ui.cjs",
     "test:web": "npm run build:web && node tests/web-tool-ui.cjs",
     "test:select": "npm run build:web && node tests/select-ui.cjs",
-    "test:window": "npm run build:web && node tests/window-ui.cjs"
+    "test:skin-controls": "npm run build && node tests/skin-controls-ui.cjs",
+    "test:window": "npm run build:web && node tests/window-ui.cjs",
+    "test:close": "npm run build && node tests/close-ui.cjs",
+    "test:drop": "npm run build && node tests/drop-ui.cjs",
+    "test:new-project": "npm run build && node tests/new-project-ui.cjs",
+    "test:page-transition": "npm run build && node tests/page-transition-ui.cjs"
   },
   "dependencies": {
     "react": "19.3.0",

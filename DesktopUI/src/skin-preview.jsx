@@ -10,6 +10,7 @@ export function SkinTargetFields({
   slot,
   onChange,
   onSlotChange,
+  validation,
 }) {
   const [custom, setCustom] = useState(
     !!value && !targets.some((t) => t.identifier === value),
@@ -24,7 +25,7 @@ export function SkinTargetFields({
   ];
   return (
     <>
-      <Field label="目标模型" hint="目标模型需已安装；皮肤拓展包不会创建模型。">
+      <Field label="目标模型" hint="目标模型需已安装；NPC皮肤拓展包不会创建模型。">
         <Select
           value={custom ? "__custom" : value}
           options={options}
@@ -41,7 +42,11 @@ export function SkinTargetFields({
         />
       </Field>
       {custom && (
-        <Field label="自定义模型 ID" hint="例如 customnpc:forest_guard_dlcnpc">
+        <Field
+          label="自定义模型 ID"
+          hint="例如 customnpc:forest_guard_dlcnpc"
+          {...validation.field("target")}
+        >
           <input
             value={value}
             maxLength={160}
@@ -52,6 +57,7 @@ export function SkinTargetFields({
       {!!value && (
         <Field
           label="贴图槽位"
+          {...validation.field("slot")}
           hint="默认为模型主贴图槽位；多贴图模型可填写实际槽位，例如 default、wea。"
         >
           <input

@@ -69,7 +69,7 @@ const { atomicJson } = require("../electron/services.cjs");
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     const nav = (name) =>
       page
@@ -129,6 +129,18 @@ const { atomicJson } = require("../electron/services.cjs");
     assert.equal(await page.locator("select").count(), 0);
     await account.click();
     await menu.waitFor();
+    assert.equal(await menu.getByRole("option").count(), accounts.length + 1);
+    const searchOptions = page.getByRole("searchbox", { name: "搜索选项" });
+    await searchOptions.fill(accounts[1].toUpperCase());
+    assert.equal(await menu.getByRole("option").count(), 1);
+    await menu
+      .getByRole("option", { name: accounts[1], exact: true })
+      .waitFor();
+    await searchOptions.fill("no-matching-account");
+    await page.getByText("没有匹配的选项", { exact: true }).waitFor();
+    await searchOptions.press("Enter");
+    assert.equal(await account.getAttribute("aria-expanded"), "true");
+    await page.getByRole("button", { name: "清空选项搜索" }).click();
     assert.equal(await menu.getByRole("option").count(), accounts.length + 1);
     await capture("select-light");
     await menu.getByRole("option", { name: accounts[1], exact: true }).click();
@@ -192,6 +204,8 @@ const { atomicJson } = require("../electron/services.cjs");
       .waitFor();
     const channel = page.getByRole("combobox", { name: "游戏端" });
     await channel.click();
+    await searchOptions.fill("测试");
+    assert.equal(await menu.getByRole("option").count(), 1);
     await menu.getByRole("option", { name: "测试端", exact: true }).click();
     await page.waitForFunction(() =>
       document
@@ -208,6 +222,8 @@ const { atomicJson } = require("../electron/services.cjs");
     await nav("开发者工具箱");
     const type = page.getByRole("combobox", { name: "类型", exact: true });
     await type.click();
+    await searchOptions.fill("2");
+    assert.equal(await menu.getByRole("option").count(), 1);
     await menu.getByRole("option", { name: "武器", exact: true }).click();
     await page.getByRole("spinbutton", { name: "耐久", exact: true }).waitFor();
     assert.equal(

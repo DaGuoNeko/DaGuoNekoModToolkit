@@ -112,22 +112,22 @@ namespace NpcSkinMaker
             }
             if (string.IsNullOrWhiteSpace(CustomName))
             {
-                error = "自定义名称不能为空";
+                error = "自定义模型 ID 不能为空";
                 return false;
             }
             if (!Regex.IsMatch(CustomName, @"^[a-z][a-z0-9_]*$"))
             {
-                error = "自定义名称必须以小写字母开头，只能包含小写字母、数字和下划线";
+                error = "自定义模型 ID 必须以小写字母开头，只能包含小写字母、数字和下划线";
                 return false;
             }
             if (CustomName.EndsWith("_dlcnpc", StringComparison.Ordinal))
             {
-                error = "自定义名称无需包含 _dlcnpc 后缀";
+                error = "自定义模型 ID 无需包含 _dlcnpc 后缀";
                 return false;
             }
             if ((!FromImport || Identifier != OriginalIdentifier) && NpcCompatibility.IsReserved(Identifier))
             {
-                error = "模型名称与 NPC 内置模型冲突，请更换自定义名称: " + CustomName;
+                error = "模型 ID 与 NPC 内置模型冲突，请更换自定义模型 ID: " + CustomName;
                 return false;
             }
             if (string.IsNullOrEmpty(GeoPath) || !File.Exists(GeoPath))

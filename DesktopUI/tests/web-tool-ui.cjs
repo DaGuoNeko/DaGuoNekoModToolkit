@@ -19,7 +19,7 @@ const { fixture, removeFixture } = require("./fixtures.cjs");
     });
     const page = await app.firstWindow();
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     const sidebar = page.locator(".sidebar");
     const tools = ["3D 文字", "开发者工具箱", "MCStudio 项目", "存档全局配置"];
@@ -42,14 +42,14 @@ const { fixture, removeFixture } = require("./fixtures.cjs");
     await expectTools(true);
     await page.reload();
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     await expectTools(true);
     await toggleTools();
     await expectTools(false);
     await page.reload();
     await page
-      .getByRole("heading", { name: "皮肤拓展", exact: true })
+      .getByRole("heading", { name: "NPC皮肤拓展", exact: true })
       .waitFor();
     await expectTools(false);
     await toggleTools();
