@@ -16,8 +16,12 @@ const fs = require("node:fs/promises");
 const { pathToFileURL } = require("node:url");
 const { spawn } = require("node:child_process");
 const { Backend } = require("./backend.cjs");
+const {
+  UpdateChecker,
+  REPOSITORY_URL,
+  RELEASES_URL,
+} = require("./updates.cjs");
 const WEB_TOOL_URL = "https://3dtext.easecation.net/";
-const REPOSITORY_URL = "https://github.com/DaGuoNeko/DaGuoNekoModToolkit";
 const HELP_URLS = new Map([
   ["sounds", "https://www.yuque.com/maomaozi-hldyx/mcmiao/bhe4o3nlwgfak5oc"],
   ["textures", "https://www.yuque.com/maomaozi-hldyx/mcmiao/gouhuyudcu56chm0"],
@@ -47,6 +51,9 @@ const dataDirectory =
   path.join(process.env.LOCALAPPDATA, "NPC_SkinMaker");
 app.setPath("userData", path.join(dataDirectory, "Electron"));
 const settings = new Settings(dataDirectory);
+const updates = new UpdateChecker(app.getVersion(), (url, options) =>
+  fetch(url, options),
+);
 const studio = new Studio(
   process.env.MCNPC_LOCAL_DATA || process.env.LOCALAPPDATA,
   process.env.MCNPC_ROAMING_DATA || process.env.APPDATA,
@@ -295,6 +302,8 @@ async function dispatch(method, args) {
         skinTargets: await backend.call("skin.targets"),
       };
     }
+    case "updates.check":
+      return updates.check();
     case "files.pick":
       return pick(args.kind, !!args.multiple);
     case "clipboard.write": {
@@ -457,6 +466,10 @@ async function dispatch(method, args) {
         await shell.openExternal(WEB_TOOL_URL);
       } else if (args.kind === "repository") {
         await shell.openExternal(REPOSITORY_URL);
+      } else if (args.kind === "releases") {
+        await shell.openExternal(RELEASES_URL);
+      } else if (args.kind === "update-download") {
+        await shell.openExternal(updates.downloadUrl());
       } else if (args.kind === "help" && HELP_URLS.has(args.page)) {
         await shell.openExternal(HELP_URLS.get(args.page));
       } else throw new Error("不支持的链接");
@@ -609,6 +622,7 @@ else {
   app.on("window-all-closed", () => app.quit());
   // Only release services once quitting is confirmed; a close prompt may cancel app.quit().
   app.on("will-quit", () => {
+    updates.close();
     if (backend) backend.close();
     cancelRunningTools();
   });

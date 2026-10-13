@@ -4,6 +4,7 @@ const methods = new Set([
   "window.control",
   "window.confirm-close",
   "bootstrap",
+  "updates.check",
   "state",
   "clipboard.write",
   "skins.add",

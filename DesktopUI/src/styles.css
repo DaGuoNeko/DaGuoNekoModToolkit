@@ -903,6 +903,12 @@ td.check-cell {
 .muted {
   color: var(--muted);
 }
+.sound-format-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
 .selection-bar {
   display: flex;
   align-items: center;
@@ -1483,6 +1489,29 @@ td.check-cell {
 }
 .about-brand {
   padding: 15px 0 34px;
+}
+.update-status {
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.update-release h3 {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.update-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0 12px;
 }
 .about-repository {
   margin-top: 14px;

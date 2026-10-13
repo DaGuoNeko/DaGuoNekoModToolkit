@@ -226,7 +226,7 @@ const ogg = require("./ogg-fixture.cjs");
     await modal.getByRole("tab", { name: "基本信息", exact: true }).click();
     await drop(
       [f.texture],
-      modal.getByLabel("预览图", { exact: true }).locator(".."),
+      modal.getByLabel("UI选择时预览图", { exact: true }).locator(".."),
     );
     await page.waitForFunction(
       (file) =>

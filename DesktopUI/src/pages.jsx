@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Button,
   Field,
@@ -831,6 +831,109 @@ export function ConfigsPage({ settings, saveSettings, report }) {
   );
 }
 
+function UpdateSection({ version }) {
+  const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  async function check() {
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const value = await api("updates.check");
+      if (mounted.current) setResult(value);
+    } catch (error) {
+      if (mounted.current) setError(error.message);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function open(kind) {
+    setOpening(true);
+    setError("");
+    try {
+      await api("web.open", { kind });
+    } catch (error) {
+      if (mounted.current) setError(`无法打开浏览器：${error.message}`);
+    } finally {
+      if (mounted.current) setOpening(false);
+    }
+  }
+  return (
+    <Section
+      title="软件更新"
+      description={`当前版本 ${version} · 检查正式发布版本`}
+      action={
+        <Button
+          icon="refresh"
+          primary
+          disabled={busy || opening}
+          onClick={check}
+        >
+          {busy ? "正在检查…" : "检查更新"}
+        </Button>
+      }
+    >
+      <div className="update-status" role="status" aria-live="polite">
+        {busy
+          ? "正在查询最新版本，请稍候…"
+          : result?.status === "available"
+            ? `发现新版本 ${result.latestVersion}`
+            : result?.status === "current"
+              ? `当前版本无需更新（最新正式版 ${result.latestVersion}）`
+              : result?.status === "unpublished"
+                ? "尚未找到正式发布版本，请到发布页面查看。"
+                : "点击“检查更新”查看是否有新版本。"}
+      </div>
+      <ErrorBox>{error}</ErrorBox>
+      {result?.latestVersion && (
+        <div className="update-release">
+          <h3>{result.title}</h3>
+          {result.publishedAt && (
+            <p className="muted">
+              发布时间：{new Date(result.publishedAt).toLocaleString("zh-CN")}
+            </p>
+          )}
+          <div className="update-notes">
+            {result.notes || "该版本暂未填写更新说明。"}
+          </div>
+        </div>
+      )}
+      <div className="update-actions">
+        {result?.status === "available" && result.downloadUrl && (
+          <Button
+            icon="export"
+            primary
+            disabled={busy || opening}
+            onClick={() => open("update-download")}
+          >
+            下载 Windows 新版
+          </Button>
+        )}
+        <Button
+          icon="external"
+          disabled={busy || opening}
+          onClick={() => open("releases")}
+        >
+          打开发布页面
+        </Button>
+      </div>
+      <p className="muted">
+        下载后解压到新目录，关闭旧版并运行新版程序即可。工程请先保存。
+      </p>
+    </Section>
+  );
+}
+
 export function AboutPage({ version }) {
   const [error, setError] = useState("");
   return (
@@ -843,6 +946,7 @@ export function AboutPage({ version }) {
         <h2>大果喵模组工具箱</h2>
         <p>DaGuoNeko Mod Toolkit · {version}</p>
       </div>
+      <UpdateSection version={version} />
       <Section title="从素材到拓展包">
         <div className="help-grid">
           <div>

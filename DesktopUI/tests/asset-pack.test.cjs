@@ -267,14 +267,15 @@ test("project size includes metadata: exactly 512 MiB reopens, one byte over pre
   const limit = 512 * 1024 * 1024;
   const resourceLimit = 64 * 1024 * 1024;
   const items = [];
-  // Small distinct fixtures establish the manifest size. Padding exercises archive
-  // storage limits only, not audio decoding; no large buffers are held in memory.
+  // Padded PNGs exercise archive storage limits, independently of audio validity.
+  // OGG now rejects trailing/padded bytes, so these are deliberately image assets.
+  const png = await fs.readFile(f.invalid);
   for (let i = 0; i < 8; i++) {
-    const file = path.join(f.directory, `boundary-${i}.ogg`);
-    await fs.writeFile(file, Buffer.concat([ogg(), Buffer.from([i])]));
-    items.push({ ...sound(f), Id: `sound_${i}`, Path: file });
+    const file = path.join(f.directory, `boundary-${i}.png`);
+    await fs.writeFile(file, Buffer.concat([png, Buffer.from([i])]));
+    items.push({ ...texture(f, `texture_${i}`), Path: file });
   }
-  await backend.call("sounds.add", { items });
+  await backend.call("textures.add", { items });
   const project = path.join(f.directory, "boundary.dgnproject");
   await backend.call("project.save", { path: project });
   function archiveStats(file) {
@@ -299,27 +300,27 @@ test("project size includes metadata: exactly 512 MiB reopens, one byte over pre
   await assert.rejects(fs.access(newProject), { code: "ENOENT" });
   assert.equal((await fs.readdir(f.directory)).some((name) => name.endsWith(".tmp")), false);
   const restored = (await backend.call("project.open", { path: project })).state;
-  assert.equal(restored.sounds.length, 8);
+  assert.equal(restored.textures.length, 8);
   let restoredSize = metadataBytes;
-  for (const item of restored.sounds) restoredSize += (await fs.stat(item.Path)).size;
+  for (const item of restored.textures) restoredSize += (await fs.stat(item.Path)).size;
   assert.equal(restoredSize, limit);
 });
 
 test("project size counts shared resource content once, even at different source paths", async (t) => {
   const { f, backend } = await setup(t);
-  await fs.truncate(f.sound, 64 * 1024 * 1024);
-  const copy = path.join(f.directory, "same-content.ogg");
-  await fs.copyFile(f.sound, copy);
-  await backend.call("sounds.add", {
+  await fs.truncate(f.invalid, 64 * 1024 * 1024);
+  const copy = path.join(f.directory, "same-content.png");
+  await fs.copyFile(f.invalid, copy);
+  await backend.call("textures.add", {
     items: Array.from({ length: 9 }, (_, i) => ({
-      ...sound(f), Id: `shared_${i}`, Path: i % 2 ? copy : f.sound,
+      ...texture(f, `shared_${i}`), Path: i % 2 ? copy : f.invalid,
     })),
   });
   const project = path.join(f.directory, "shared.dgnproject");
   await backend.call("project.save", { path: project });
   const restored = (await backend.call("project.open", { path: project })).state;
-  assert.equal(restored.sounds.length, 9);
-  assert.equal(new Set(restored.sounds.map((item) => item.Path)).size, 1);
+  assert.equal(restored.textures.length, 9);
+  assert.equal(new Set(restored.textures.map((item) => item.Path)).size, 1);
 });
 
 test("generated Python 2.7 data registers against the real prerequisite registry and cleans listeners", async (t) => {

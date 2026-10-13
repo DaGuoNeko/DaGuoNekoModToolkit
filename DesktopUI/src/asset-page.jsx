@@ -126,6 +126,12 @@ export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
     >
       <form onSubmit={save} noValidate>
         <ErrorBox>{error}</ErrorBox>
+        {kind === "sounds" && (
+          <p className="sound-format-hint">
+            网易要求音效为 OGG Vorbis，码率不大于 128
+            kbps；超标或无法读取码率的文件会被拦截，请先转换后添加。
+          </p>
+        )}
         {items.map((item, index) => (
           <div className="section" key={index}>
             <div className="asset-name">
@@ -426,6 +432,12 @@ export function AssetPage({
           导出 ZIP
         </Button>
       </Intro>
+      {kind === "sounds" && (
+        <p className="sound-format-hint">
+          网易音效要求：OGG Vorbis 格式，码率不大于 128
+          kbps。导入、工程恢复和导出均会检查；请先转换超标文件。
+        </p>
+      )}
       <div className="toolbar">
         <Button icon="plus" onClick={pick}>
           添加{label} / 批量添加
@@ -600,7 +612,7 @@ export function AssetPage({
         >
           {kind === "textures"
             ? "支持任意正常尺寸的 PNG 图标、横幅及装饰贴图。"
-            : "支持 OGG Vorbis 文件；MP3、WAV、FSB、OGG Opus 请先转换。"}
+            : "支持码率不大于 128 kbps 的 OGG Vorbis；MP3、WAV、FSB、OGG Opus 请先转换。"}
         </Empty>
       )}
       {visible.length > 50 && (

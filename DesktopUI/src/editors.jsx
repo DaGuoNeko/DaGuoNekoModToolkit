@@ -476,7 +476,7 @@ export function ModelEditor({
           </div>
           <div className="full">
             <PathField
-              label="预览图"
+              label="UI选择时预览图"
               kind="texture"
               value={entry.PreviewImagePath}
               onChange={(v) => update("PreviewImagePath", v)}

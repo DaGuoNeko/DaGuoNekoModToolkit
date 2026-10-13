@@ -80,16 +80,7 @@ namespace NpcSkinMaker
             }
             else
             {
-                // Reject renamed MP3/Opus files before creating a NetEase package.
-                using (var stream = File.OpenRead(entry.Path))
-                {
-                    byte[] header = new byte[4096];
-                    int read = stream.Read(header, 0, header.Length);
-                    string probe = Encoding.ASCII.GetString(header, 0, read);
-                    if (!entry.Path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase) ||
-                        !probe.StartsWith("OggS") || !probe.Contains("\x01vorbis"))
-                        throw new InvalidDataException("音效必须是 OGG Vorbis，不能直接改 MP3/Opus 扩展名: " + entry.Path);
-                }
+                OggVorbisValidator.Validate(entry.Path);
                 if (double.IsNaN(entry.Volume) || double.IsInfinity(entry.Volume) || entry.Volume < 0 || entry.Volume > 1 ||
                     double.IsNaN(entry.Pitch) || double.IsInfinity(entry.Pitch) || entry.Pitch <= 0 || entry.Pitch > 256)
                     throw new InvalidDataException("音量必须在 0–1，音调必须大于 0 且不超过 256");
