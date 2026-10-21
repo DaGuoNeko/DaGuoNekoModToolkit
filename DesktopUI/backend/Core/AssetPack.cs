@@ -17,6 +17,8 @@ namespace NpcSkinMaker
         public string CategoryId { get; set; } = "icons";
         public string CategoryName { get; set; } = "图标";
         public string Path { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> SoundFiles { get; set; }
         public List<string> SearchTags { get; set; } = new List<string>();
         public double Volume { get; set; } = 1;
         public double Pitch { get; set; } = 1;
@@ -58,11 +60,10 @@ namespace NpcSkinMaker
                 throw new InvalidDataException("资源名称和分类名称不能为空");
             if (entry.SearchTags == null || entry.SearchTags.Any(t => t == null))
                 throw new InvalidDataException("搜索关键词必须是字符串列表");
-            if (!File.Exists(entry.Path)) throw new InvalidDataException("资源文件不存在: " + entry.Path);
-            if (new FileInfo(entry.Path).Length > 64L * 1024 * 1024)
-                throw new InvalidDataException("单个资源不能超过 64 MB: " + entry.Path);
             if (kind == "textures")
             {
+                if (entry.SoundFiles != null) throw new InvalidDataException("贴图资源不能配置候选音效文件");
+                ValidateResourceFile(entry.Path);
                 using (var stream = File.OpenRead(entry.Path))
                 {
                     byte[] signature = new byte[8];
@@ -80,11 +81,34 @@ namespace NpcSkinMaker
             }
             else
             {
-                OggVorbisValidator.Validate(entry.Path);
+                var files = GetSoundFiles(entry);
+                foreach (string file in files)
+                {
+                    ValidateResourceFile(file);
+                    OggVorbisValidator.Validate(file);
+                }
                 if (double.IsNaN(entry.Volume) || double.IsInfinity(entry.Volume) || entry.Volume < 0 || entry.Volume > 1 ||
                     double.IsNaN(entry.Pitch) || double.IsInfinity(entry.Pitch) || entry.Pitch <= 0 || entry.Pitch > 256)
                     throw new InvalidDataException("音量必须在 0–1，音调必须大于 0 且不超过 256");
+                entry.Path = files[0];
             }
+        }
+
+        public static IReadOnlyList<string> GetSoundFiles(AssetEntry entry)
+        {
+            if (entry.SoundFiles == null) return new[] { entry.Path };
+            if (entry.SoundFiles.Count == 0 || entry.SoundFiles.Count > 1000 || entry.SoundFiles.Any(string.IsNullOrWhiteSpace))
+                throw new InvalidDataException("每个音效 ID 必须包含 1–1000 个有效的候选音效文件");
+            // Keep repeated slots: project storage may deduplicate identical files, but
+            // those slots still contribute independently to random sound selection.
+            return entry.SoundFiles;
+        }
+
+        private static void ValidateResourceFile(string path)
+        {
+            if (!File.Exists(path)) throw new InvalidDataException("资源文件不存在: " + path);
+            if (new FileInfo(path).Length > 64L * 1024 * 1024)
+                throw new InvalidDataException("单个资源不能超过 64 MB: " + path);
         }
 
         public void Validate(string kind)

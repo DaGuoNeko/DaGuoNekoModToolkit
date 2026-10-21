@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Button,
   Intro,
@@ -7,6 +7,7 @@ import {
   Empty,
   Modal,
   Field,
+  Select,
   ErrorBox,
   LocalImage,
   basename,
@@ -21,15 +22,38 @@ import {
 
 const api = (method, args) => window.toolkit.call(method, args);
 const labels = { textures: "贴图", sounds: "音效" };
+const maxSoundFiles = 1000;
 
-export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
+// An explicit empty list must stay empty; only legacy entries fall back to Path.
+function soundFiles(entry) {
+  return entry.SoundFiles ?? (entry.Path ? [entry.Path] : []);
+}
+
+function withSoundFiles(entry, files) {
+  return { ...entry, SoundFiles: files, Path: files[0] || "" };
+}
+
+export function AssetEditor({
+  kind,
+  paths = [],
+  entry,
+  entries,
+  onClose,
+  onSave,
+  randomGroup = false,
+}) {
   const editing = !!entry;
-  const [items, setItems] = useState(
+  const [items, setItems] = useState(() =>
     entry
-      ? [{ ...entry }]
-      : paths.map((Path) => ({
-          Path,
-          Name: basename(Path).replace(/\.(png|ogg)$/i, ""),
+      ? [
+          kind === "sounds"
+            ? withSoundFiles(entry, [...soundFiles(entry)])
+            : { ...entry },
+        ]
+      : (randomGroup ? [paths] : paths.map((path) => [path])).map((files) => ({
+          ...(kind === "sounds" ? { SoundFiles: [...files] } : {}),
+          Path: files[0],
+          Name: basename(files[0]).replace(/\.(png|ogg)$/i, ""),
           Id: "",
           CategoryId: kind === "textures" ? "icons" : "sounds",
           CategoryName: labels[kind],
@@ -47,6 +71,14 @@ export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
   const [stream, setStream] = useState(items[0].Stream);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [picking, setPicking] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const others = entries.filter((item) => item.Id !== entry?.Id);
   const errors = {
     category:
@@ -76,10 +108,63 @@ export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
       )
         ? "资源 ID 已存在"
         : "");
+    if (kind === "sounds") {
+      const count = soundFiles(item).length;
+      errors[`files${i}`] = !count
+        ? "至少添加一个候选音频"
+        : count > maxSoundFiles
+          ? `同一音效 ID 最多添加 ${maxSoundFiles} 个候选音频`
+          : "";
+    }
   });
   const validation = useValidation(errors);
+  async function pickSoundFiles(index, replaceIndex = null) {
+    setPicking(true);
+    setError("");
+    try {
+      const chosen = await api("files.pick", {
+        kind: "sound",
+        multiple: replaceIndex === null,
+      });
+      if (!alive.current || !chosen.length) return;
+      const currentCount = soundFiles(items[index]).length;
+      if (
+        replaceIndex === null &&
+        currentCount + chosen.length > maxSoundFiles
+      ) {
+        setError(`同一音效 ID 最多添加 ${maxSoundFiles} 个候选音频。`);
+        return;
+      }
+      setItems((current) =>
+        current.map((item, i) => {
+          if (i !== index) return item;
+          const files = [...soundFiles(item)];
+          if (replaceIndex === null) files.push(...chosen);
+          else files[replaceIndex] = chosen[0];
+          return withSoundFiles(item, files);
+        }),
+      );
+    } catch (error) {
+      if (alive.current) setError(error.message);
+    } finally {
+      if (alive.current) setPicking(false);
+    }
+  }
+  function removeSoundFile(index, fileIndex) {
+    setItems((current) =>
+      current.map((item, i) =>
+        i === index
+          ? withSoundFiles(
+              item,
+              soundFiles(item).filter((_, j) => j !== fileIndex),
+            )
+          : item,
+      ),
+    );
+  }
   async function save(event) {
     event?.preventDefault();
+    if (busy || picking) return;
     if (!validation.check()) return;
     setBusy(true);
     try {
@@ -96,29 +181,35 @@ export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
         Stream: stream,
       }));
       await onSave(values);
-      onClose();
+      if (alive.current) onClose();
     } catch (error) {
-      setError(error.message);
+      if (alive.current) setError(error.message);
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
   }
   return (
     <Modal
-      title={`${editing ? "编辑" : "添加"}${labels[kind]}`}
-      busy={busy}
+      title={
+        randomGroup
+          ? "添加随机音效组"
+          : `${editing ? "编辑" : "添加"}${labels[kind]}`
+      }
+      busy={busy || picking}
       onClose={onClose}
       description={
         editing
           ? "修改已发布的资源 ID 或分类 ID 会改变资源标识，请谨慎操作。"
-          : `已选择 ${items.length} 个文件；ID 留空则自动生成并保持固定。`
+          : randomGroup
+            ? `已选择 ${soundFiles(items[0]).length} 个候选音频，共用一个音效 ID；ID 留空则自动生成并保持固定。`
+            : `已选择 ${items.length} 个文件；ID 留空则自动生成并保持固定。`
       }
       footer={
         <>
-          <Button disabled={busy} onClick={onClose}>
+          <Button disabled={busy || picking} onClick={onClose}>
             取消
           </Button>
-          <Button primary disabled={busy} onClick={save}>
+          <Button primary disabled={busy || picking} onClick={save}>
             {editing ? "保存" : "添加"}
           </Button>
         </>
@@ -142,7 +233,11 @@ export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
                   className="skin-thumbnail"
                 />
               )}
-              <span className="muted">{basename(item.Path)}</span>
+              <span className="muted">
+                {kind === "sounds" && soundFiles(item).length > 1
+                  ? `${soundFiles(item).length} 个候选音频 · 每次触发随机播放一个`
+                  : basename(item.Path)}
+              </span>
             </div>
             <Field
               label={`资源名称${items.length > 1 ? ` ${index + 1}` : ""}`}
@@ -177,6 +272,59 @@ export function AssetEditor({ kind, paths, entry, entries, onClose, onSave }) {
                 }
               />
             </Field>
+            {kind === "sounds" && (
+              <Field
+                label={`候选音频${items.length > 1 ? ` ${index + 1}` : ""}（${soundFiles(item).length} 个）`}
+                {...validation.field(`files${index}`)}
+                hint="这些文件共用上方的音效 ID，每次触发随机播放一个，不会自动轮播；每个文件均须为不大于 128 kbps 的 OGG Vorbis。"
+              >
+                <div className="sound-candidates">
+                  <ol className="sound-candidate-list">
+                    {soundFiles(item).map((path, fileIndex) => (
+                      <li className="sound-candidate-row" key={fileIndex}>
+                        <div className="sound-candidate-file" title={path}>
+                          <strong>
+                            {fileIndex + 1}. {basename(path)}
+                          </strong>
+                          <small>{path}</small>
+                        </div>
+                        <Button
+                          type="button"
+                          disabled={busy || picking}
+                          aria-label={`替换候选音频 ${fileIndex + 1}`}
+                          onClick={() => pickSoundFiles(index, fileIndex)}
+                        >
+                          替换
+                        </Button>
+                        <Button
+                          type="button"
+                          disabled={busy || picking}
+                          aria-label={`移除候选音频 ${fileIndex + 1}`}
+                          onClick={() => removeSoundFile(index, fileIndex)}
+                        >
+                          移除
+                        </Button>
+                      </li>
+                    ))}
+                  </ol>
+                  {!soundFiles(item).length && (
+                    <p className="muted">尚未添加候选音频。</p>
+                  )}
+                  <Button
+                    type="button"
+                    icon="plus"
+                    disabled={
+                      busy ||
+                      picking ||
+                      soundFiles(item).length >= maxSoundFiles
+                    }
+                    onClick={() => pickSoundFiles(index)}
+                  >
+                    追加候选音频
+                  </Button>
+                </div>
+              </Field>
+            )}
           </div>
         ))}
         <div className="form-grid">
@@ -309,14 +457,21 @@ function PackEditor({ pack, otherProviderId, onClose, onSave }) {
 }
 
 function Preview({ kind, entry, onClose }) {
-  const [source, setSource] = useState(""),
+  const files = kind === "sounds" ? soundFiles(entry) : [];
+  const [candidate, setCandidate] = useState(0);
+  const path = files[candidate] || "";
+  const [media, setMedia] = useState({ path: "", source: "" }),
     [error, setError] = useState("");
+  const source = media.path === path ? media.source : "";
   useEffect(() => {
     if (kind !== "sounds") return;
     let active = true;
-    api("audio.read", { path: entry.Path })
+    setError("");
+    setMedia({ path: "", source: "" });
+    if (!path) return;
+    api("audio.read", { path })
       .then((value) => {
-        if (active) setSource(value);
+        if (active) setMedia({ path, source: value });
       })
       .catch((error) => {
         if (active) setError(error.message);
@@ -324,31 +479,54 @@ function Preview({ kind, entry, onClose }) {
     return () => {
       active = false;
     };
-  }, [entry.Path, kind]);
+  }, [path, kind]);
   return (
     <Modal title={entry.Name} onClose={onClose}>
       <ErrorBox>{error}</ErrorBox>
       {kind === "textures" ? (
         <LocalImage path={entry.Path} className="asset-preview-image" />
-      ) : source ? (
-        <audio
-          controls
-          autoPlay
-          src={source}
-          onPlay={(e) => {
-            e.currentTarget.volume = entry.Volume;
-            e.currentTarget.playbackRate = Math.max(
-              0.0625,
-              Math.min(16, entry.Pitch),
-            );
-            e.currentTarget.preservesPitch = false;
-          }}
-          onError={() =>
-            setError("浏览器无法解码此音效，请检查 OGG Vorbis 文件是否完整。")
-          }
-        />
       ) : (
-        <p>正在读取音效…</p>
+        <>
+          {files.length > 1 && (
+            <Field
+              label="试听候选音频"
+              hint="选择具体文件后，点击播放器试听。游戏内每次触发此音效 ID 时随机播放一个候选，不会自动轮播。"
+            >
+              <Select
+                value={String(candidate)}
+                onChange={(value) => setCandidate(Number(value))}
+                options={files.map((file, index) => ({
+                  value: String(index),
+                  label: `${index + 1}. ${basename(file)}`,
+                }))}
+              />
+            </Field>
+          )}
+          {source ? (
+            <audio
+              key={`${candidate}:${path}`}
+              className="sound-preview-player"
+              controls
+              autoPlay={files.length === 1}
+              src={source}
+              onPlay={(e) => {
+                e.currentTarget.volume = entry.Volume;
+                e.currentTarget.playbackRate = Math.max(
+                  0.0625,
+                  Math.min(16, entry.Pitch),
+                );
+                e.currentTarget.preservesPitch = false;
+              }}
+              onError={() =>
+                setError(
+                  "浏览器无法解码此音效，请检查 OGG Vorbis 文件是否完整。",
+                )
+              }
+            />
+          ) : !error ? (
+            <p>{path ? "正在读取音效…" : "没有可试听的候选音频。"}</p>
+          ) : null}
+        </>
       )}
     </Modal>
   );
@@ -376,6 +554,14 @@ export function AssetPage({
   const [editor, setEditor] = useState(null),
     [settings, setSettings] = useState(false),
     [preview, setPreview] = useState(null);
+  const [picking, setPicking] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   useEffect(() => {
     setSelected([]);
   }, [entries]);
@@ -393,15 +579,18 @@ export function AssetPage({
     paged = visible.slice(start, start + 50);
   const all =
     paged.length > 0 && paged.every(({ index }) => selected.includes(index));
-  async function pick() {
+  async function pick(randomGroup = false) {
+    setPicking(true);
     try {
       const paths = await api("files.pick", {
         kind: kind === "textures" ? "texture" : "sound",
         multiple: true,
       });
-      if (paths.length) setEditor({ paths });
+      if (alive.current && paths.length) setEditor({ paths, randomGroup });
     } catch (error) {
-      report(error);
+      if (alive.current) report(error);
+    } finally {
+      if (alive.current) setPicking(false);
     }
   }
   function remove(indices) {
@@ -436,12 +625,19 @@ export function AssetPage({
         <p className="sound-format-hint">
           网易音效要求：OGG Vorbis 格式，码率不大于 128
           kbps。导入、工程恢复和导出均会检查；请先转换超标文件。
+          随机音效组可让一个 ID
+          对应多个候选音频，每次触发随机播放一个，不会自动轮播。
         </p>
       )}
       <div className="toolbar">
-        <Button icon="plus" onClick={pick}>
+        <Button icon="plus" disabled={picking} onClick={() => pick()}>
           添加{label} / 批量添加
         </Button>
+        {kind === "sounds" && (
+          <Button disabled={picking} icon="sound" onClick={() => pick(true)}>
+            添加随机音效组
+          </Button>
+        )}
         <Button icon="import" onClick={importPackage}>
           导入 ZIP
         </Button>
@@ -550,7 +746,11 @@ export function AssetPage({
                       )}
                       <div>
                         <strong>{item.Name}</strong>
-                        <small>{basename(item.Path)}</small>
+                        <small>
+                          {kind === "sounds" && soundFiles(item).length > 1
+                            ? `${soundFiles(item).length} 个候选音频 · 随机播放`
+                            : basename(item.Path)}
+                        </small>
                       </div>
                     </div>
                   </td>
@@ -604,7 +804,7 @@ export function AssetPage({
           title={search ? "没有匹配的结果" : `添加第一个${label}`}
           action={
             !search && (
-              <Button primary onClick={pick}>
+              <Button primary disabled={picking} onClick={() => pick()}>
                 选择{label}文件
               </Button>
             )

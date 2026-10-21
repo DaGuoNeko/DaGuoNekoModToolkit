@@ -40,6 +40,14 @@ namespace NpcSkinMaker
         private static string ResourcePath(AssetPack pack, string kind, AssetEntry item) =>
             (kind == "textures" ? "textures/ui/" : "sounds/") + pack.ProviderId + "/" + item.Id;
 
+        private static string[] SoundResourcePaths(AssetPack pack, AssetEntry item)
+        {
+            int count = AssetPack.GetSoundFiles(item).Count;
+            string resource = ResourcePath(pack, "sounds", item);
+            return count == 1 ? new[] { resource } : Enumerable.Range(1, count)
+                .Select(index => resource + "/variant_" + index).ToArray();
+        }
+
         private static JArray Assets(AssetPack pack, string kind) => new JArray(pack.Entries.Select(item =>
         {
             string type = kind == "textures" ? "texture" : "sound";
@@ -109,16 +117,20 @@ namespace NpcSkinMaker
                 var definitions = new JObject();
                 foreach (var item in pack.Entries)
                 {
-                    string resource = ResourcePath(pack, kind, item);
-                    string target = Path.Combine(rp, resource.Replace('/', Path.DirectorySeparatorChar) + (kind == "textures" ? ".png" : ".ogg"));
-                    Directory.CreateDirectory(Path.GetDirectoryName(target));
-                    File.Copy(item.Path, target);
+                    var sources = kind == "sounds" ? AssetPack.GetSoundFiles(item) : new[] { item.Path };
+                    string[] resources = kind == "sounds" ? SoundResourcePaths(pack, item) : new[] { ResourcePath(pack, kind, item) };
+                    for (int index = 0; index < sources.Count; index++)
+                    {
+                        string target = Path.Combine(rp, resources[index].Replace('/', Path.DirectorySeparatorChar) + (kind == "textures" ? ".png" : ".ogg"));
+                        Directory.CreateDirectory(Path.GetDirectoryName(target));
+                        File.Copy(sources[index], target);
+                    }
                     if (kind == "sounds") definitions[pack.ProviderId + "." + item.Id] = new JObject
                     {
-                        ["category"] = "ui", ["sounds"] = new JArray(new JObject
+                        ["category"] = "ui", ["sounds"] = new JArray(resources.Select(resource => new JObject
                         {
                             ["name"] = resource, ["stream"] = item.Stream, ["load_on_low_memory"] = true
-                        })
+                        }))
                     };
                 }
                 if (kind == "sounds") ExportText.Write(Path.Combine(rp, "sounds", "sound_definitions.json"), new JObject
@@ -127,10 +139,18 @@ namespace NpcSkinMaker
                 }.ToString());
                 var metadata = JObject.FromObject(pack);
                 foreach (JObject item in metadata["Entries"])
-                    item["Path"] = ResourcePath(pack, kind, item.ToObject<AssetEntry>()) + (kind == "textures" ? ".png" : ".ogg");
+                {
+                    var entry = item.ToObject<AssetEntry>();
+                    string[] resources = kind == "sounds" ? SoundResourcePaths(pack, entry)
+                        .Select(resource => resource + ".ogg").ToArray() : new[] { ResourcePath(pack, kind, entry) + ".png" };
+                    item["Path"] = resources[0];
+                    if (entry.SoundFiles != null) item["SoundFiles"] = new JArray(resources);
+                }
                 ExportText.Write(Path.Combine(rp, "modconfigs", pack.ConfigFileName), new JObject
                 {
-                    ["format"] = "DaGuoNekoAssetPack", ["version"] = 1, ["kind"] = kind, ["pack"] = metadata
+                    ["format"] = "DaGuoNekoAssetPack",
+                    ["version"] = pack.Entries.Any(entry => entry.SoundFiles != null && entry.SoundFiles.Count > 1) ? 2 : 1,
+                    ["kind"] = kind, ["pack"] = metadata
                 }.ToString());
                 ZipFile.CreateFromDirectory(root, pending, CompressionLevel.Optimal, false);
                 File.Move(pending, output);
@@ -158,11 +178,21 @@ namespace NpcSkinMaker
             }
             if (candidates.Count != 1) throw new InvalidDataException("ZIP 必须包含一份工具箱资源拓展配置");
             var document = candidates[0].Item2;
-            if ((string)document["format"] != "DaGuoNekoAssetPack" || (int?)document["version"] != 1 || (string)document["kind"] != kind)
+            int? version = (int?)document["version"];
+            if ((string)document["format"] != "DaGuoNekoAssetPack" || (version != 1 && version != 2) || (string)document["kind"] != kind)
                 throw new InvalidDataException("拓展包类型或版本不匹配");
             var pack = document["pack"]?.ToObject<AssetPack>() ?? throw new InvalidDataException("资源拓展配置缺失");
+            if (pack.Entries == null || pack.Entries.Any(entry => entry == null))
+                throw new InvalidDataException("资源列表无效");
+            if (version == 1 && pack.Entries.Any(entry => entry.SoundFiles != null && entry.SoundFiles.Count > 1))
+                throw new InvalidDataException("包含候选音效的拓展包必须使用版本 2");
             string rp = Directory.GetParent(Path.GetDirectoryName(candidates[0].Item1)).FullName;
-            foreach (var item in pack.Entries) item.Path = WorkspaceFiles.ResolveInside(rp, item.Path);
+            foreach (var item in pack.Entries)
+            {
+                item.Path = WorkspaceFiles.ResolveInside(rp, item.Path);
+                if (item.SoundFiles != null)
+                    item.SoundFiles = AssetPack.GetSoundFiles(item).Select(file => WorkspaceFiles.ResolveInside(rp, file)).ToList();
+            }
             pack.Validate(kind);
             return pack;
         }

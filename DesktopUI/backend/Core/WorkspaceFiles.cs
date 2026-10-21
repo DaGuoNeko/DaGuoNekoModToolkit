@@ -83,7 +83,8 @@ namespace NpcSkinMaker
             sounds.Validate("sounds");
             if (textures.ProviderId == sounds.ProviderId) throw new InvalidDataException("两个资源拓展包的标识不能相同");
             var manifest = new JObject(new JProperty("format", "DaGuoNekoModToolkit"),
-                new JProperty("version", 2), new JProperty("skins", JArray.FromObject(skins)),
+                new JProperty("version", sounds.Entries.Any(entry => entry.SoundFiles != null && entry.SoundFiles.Count > 1) ? 3 : 2),
+                new JProperty("skins", JArray.FromObject(skins)),
                 new JProperty("models", JArray.FromObject(models)),
                 new JProperty("texturePack", JObject.FromObject(textures)),
                 new JProperty("soundPack", JObject.FromObject(sounds)));
@@ -123,12 +124,12 @@ namespace NpcSkinMaker
             string root = Extract(path, tempRoot);
             var manifest = JObject.Parse(ExportText.Read(Path.Combine(root, "project.json")));
             int? version = (int?)manifest["version"];
-            if ((string)manifest["format"] != "DaGuoNekoModToolkit" || (version != 1 && version != 2) ||
+            if ((string)manifest["format"] != "DaGuoNekoModToolkit" || (version != 1 && version != 2 && version != 3) ||
                 !(manifest["skins"] is JArray) || !(manifest["models"] is JArray))
                 throw new InvalidDataException("工程格式或版本不支持");
             if (((JArray)manifest["skins"]).Count > 1000 || ((JArray)manifest["models"]).Count > 500)
                 throw new InvalidDataException("工程条目数量超过限制");
-            if (version == 2 && (!(manifest["texturePack"] is JObject) || !(manifest["soundPack"] is JObject)))
+            if (version >= 2 && (!(manifest["texturePack"] is JObject) || !(manifest["soundPack"] is JObject)))
                 throw new InvalidDataException("工程资源拓展配置缺失");
             MapPaths(manifest, relative => string.IsNullOrEmpty(relative) ? "" : ResolveInside(root, relative));
             skins = manifest["skins"].ToObject<List<SkinData>>();
@@ -137,6 +138,8 @@ namespace NpcSkinMaker
             ValidateModels(models);
             textures = version == 1 ? AssetPack.Create("textures") : manifest["texturePack"].ToObject<AssetPack>();
             sounds = version == 1 ? AssetPack.Create("sounds") : manifest["soundPack"].ToObject<AssetPack>();
+            if (version != 3 && sounds.Entries != null && sounds.Entries.Any(entry => entry?.SoundFiles != null && entry.SoundFiles.Count > 1))
+                throw new InvalidDataException("包含候选音效的工程必须使用版本 3");
             textures.Validate("textures");
             sounds.Validate("sounds");
             if (textures.ProviderId == sounds.ProviderId) throw new InvalidDataException("两个资源拓展包的标识不能相同");
@@ -146,7 +149,11 @@ namespace NpcSkinMaker
         {
             foreach (string key in new[] { "texturePack", "soundPack" })
                 foreach (JObject entry in manifest[key]?["Entries"] ?? new JArray())
+                {
                     entry["Path"] = map((string)entry["Path"]);
+                    if (entry["SoundFiles"] is JArray files)
+                        entry["SoundFiles"] = new JArray(files.Values<string>().Select(map));
+                }
             foreach (JObject skin in manifest["skins"]) skin["TexturePath"] = map((string)skin["TexturePath"]);
             foreach (JObject model in manifest["models"])
             {

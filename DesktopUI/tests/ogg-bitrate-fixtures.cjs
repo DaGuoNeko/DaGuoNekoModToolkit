@@ -95,4 +95,4 @@ function makeSound({
   return Buffer.concat(pages);
 }
 
-module.exports = { makeSound };
+module.exports = { makeSound, crc };

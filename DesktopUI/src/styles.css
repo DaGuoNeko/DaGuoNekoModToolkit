@@ -909,6 +909,55 @@ td.check-cell {
   line-height: 1.7;
   margin-bottom: 16px;
 }
+.sound-candidates {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+.sound-candidate-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.sound-candidate-list:empty {
+  display: none;
+}
+.sound-candidate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+.sound-candidate-row + .sound-candidate-row {
+  border-top: 1px solid var(--line);
+}
+.sound-candidate-file {
+  flex: 1;
+  min-width: 0;
+}
+.sound-candidate-file strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.sound-candidate-file small {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.sound-candidate-row .button {
+  flex-shrink: 0;
+  font-size: 11px;
+  min-height: 30px;
+  padding: 5px 9px;
+}
+.sound-preview-player {
+  display: block;
+  width: 100%;
+}
 .selection-bar {
   display: flex;
   align-items: center;

@@ -85,7 +85,9 @@ function rememberState(state) {
       state.sounds.length >
     0;
   for (const entry of state.textures) approveImage(entry.Path);
-  for (const entry of state.sounds) allowedAudio.add(key(entry.Path));
+  for (const entry of state.sounds)
+    for (const file of entry.SoundFiles ?? [entry.Path])
+      allowedAudio.add(key(file));
   for (const skin of state.skins) approveImage(skin.TexturePath);
   for (const model of state.models) {
     approveImage(model.PreviewImagePath);
