@@ -18,14 +18,17 @@ namespace NpcSkinMaker
                 .Select(p => new { Path = p, Data = Read(p) }).Where(c => c.Data["npcmodelslist"] is JArray).ToList();
             if (configs.Count != 1) throw new InvalidDataException("ZIP 必须包含且仅包含一份 npcmodelslist 模型配置");
             string resourceRoot = Directory.GetParent(Path.GetDirectoryName(configs[0].Path)).FullName;
+            var generatedResources = GeneratedAnimationResources(configs[0].Data, resourceRoot);
             var items = (JArray)configs[0].Data["npcmodelslist"];
             if (items.Count == 0 || items.Count > 500) throw new InvalidDataException("模型数量必须在 1 到 500 之间");
-            var clients = JsonFiles(Path.Combine(resourceRoot, "entity"));
+            var clients = JsonFiles(Path.Combine(resourceRoot, "entity"))
+                .Where(file => !generatedResources.Contains(file)).ToList();
             var behaviors = Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
                 .Where(p => p.Replace('\\', '/').Contains("/entities/")).ToList();
             var animationFiles = new List<string>();
             foreach (string file in JsonFiles(Path.Combine(resourceRoot, "animations")))
             {
+                if (generatedResources.Contains(file)) continue;
                 if (animationFiles.Any(previous => Utils.FilesEqual(previous, file))) continue;
                 string name = Path.GetFileName(file);
                 if (animationFiles.Any(previous => Path.GetFileName(previous).Equals(name, StringComparison.OrdinalIgnoreCase)))
@@ -87,6 +90,7 @@ namespace NpcSkinMaker
                 var definition = NpcCompatibility.RenderController(primary[0]);
                 foreach (string file in JsonFiles(Path.Combine(resourceRoot, "render_controllers")))
                 {
+                    if (generatedResources.Contains(file)) continue;
                     var local = Read(file)["render_controllers"]?[primary[0]] as JObject;
                     if (local != null) definition = local;
                 }
@@ -126,6 +130,7 @@ namespace NpcSkinMaker
                     model.SkinList.Add(new ModelSkin((int)skin["skinid"], (string)skin["name"], (string)skin["by"]));
                 foreach (string file in Directory.GetFiles(resourceRoot, "*", SearchOption.AllDirectories))
                 {
+                    if (generatedResources.Contains(file)) continue;
                     string relative = file.Substring(resourceRoot.Length + 1).Replace('\\', '/');
                     if (relative == "manifest.json" || relative.StartsWith("modconfigs/") ||
                         relative.StartsWith("entity/") || relative.StartsWith("models/") || relative.StartsWith("animations/")) continue;
@@ -135,6 +140,36 @@ namespace NpcSkinMaker
             }
             WorkspaceFiles.ValidateModels(result);
             return result;
+        }
+
+        private static HashSet<string> GeneratedAnimationResources(JObject config, string resourceRoot)
+        {
+            var generated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var metadata = config["online_animation_support"];
+            if (metadata == null) return generated;
+            if (!(metadata is JObject support) || support["schema_version"]?.Type != JTokenType.Integer ||
+                (int)support["schema_version"] != 1 || support["owner_id"]?.Type != JTokenType.String ||
+                !(support["generated_resources"] is JArray files) || files.Count == 0)
+                throw new InvalidDataException("在线动画生成资源清单无效或版本不支持");
+            string owner = (string)support["owner_id"];
+            if (!Regex.IsMatch(owner, @"^[a-z][a-z0-9_]*$"))
+                throw new InvalidDataException("在线动画生成资源归属无效");
+            string escapedOwner = Regex.Escape(owner);
+            string ownedPath = @"^(?:animations/customnpc_online_dlc/" + escapedOwner + @"\.animation\.json|" +
+                @"render_controllers/customnpc_online_dlc/" + escapedOwner + @"\.render_controllers\.json|" +
+                @"entity/customnpc_online_preview/" + escapedOwner + @"_[a-f0-9]{12}\.entity\.json)$";
+            foreach (var item in files)
+            {
+                if (item.Type != JTokenType.String)
+                    throw new InvalidDataException("在线动画生成资源路径必须是字符串");
+                string relative = ((string)item).Replace('\\', '/');
+                string file = WorkspaceFiles.ResolveInside(resourceRoot, relative);
+                // Only the exporter-owned files can be omitted on import. User assets in
+                // the same directories are retained unless they are explicitly listed.
+                if (!Regex.IsMatch(relative, ownedPath) || !File.Exists(file) || !generated.Add(file))
+                    throw new InvalidDataException("在线动画生成资源路径无效、缺失或重复: " + relative);
+            }
+            return generated;
         }
 
         private static JObject Read(string path) => JObject.Parse(ExportText.Read(path));

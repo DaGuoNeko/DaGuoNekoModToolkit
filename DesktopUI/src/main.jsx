@@ -530,6 +530,12 @@ function App() {
                       导出 ZIP
                     </Button>
                   </Intro>
+                  {isModels && (
+                    <p className="muted">
+                      导出的模型包默认支持在线动画编辑与播放，需要支持此功能的新版自定义NPC主包。
+                      无需额外导入动画文件；原有资源动画配置仍可独立使用。
+                    </p>
+                  )}
                   <div className="toolbar">
                     <Button
                       icon="plus"

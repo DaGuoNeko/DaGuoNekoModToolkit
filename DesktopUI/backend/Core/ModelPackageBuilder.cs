@@ -127,6 +127,10 @@ namespace NpcSkinMaker
                     CleanupTemplateFiles(bPath, rPath);
                     Logger.Info("[模型] 清理模板占位文件完成");
 
+                    // Resolve the final exported resources, not input filenames or template placeholders.
+                    ModelAnimationExporter.Export(bPath, rPath, packageName,
+                        models.Select(model => model.Identifier), newConfig);
+
                     // ⑧ 打 ZIP
                     ExportText.NormalizeDirectory(bPath);
                     ExportText.NormalizeDirectory(rPath);
@@ -455,12 +459,8 @@ namespace NpcSkinMaker
             string newScript = Utils.RenameDirectory(oldScript, newScriptName);
             Logger.Info("[模型] 重命名脚本目录: " + newScript);
 
-            string clientPy = Path.Combine(newScript, "init_modnpcmodelsClientSystem.py");
-            if (File.Exists(clientPy))
-            {
-                Utils.ReplaceInFile(clientPy, "ModName_modelsdlc.json", configFileName);
-                Logger.Info("[模型] 更新脚本配置文件名引用");
-            }
+            ModelAnimationAddonScripts.Write(newScript, newScriptName, packageName, configFileName);
+            Logger.Info("[模型] 更新模型目录及双端在线动画注册脚本");
         }
 
         private void CleanupTemplateFiles(string bPath, string rPath)

@@ -646,8 +646,9 @@ export function ModelEditor({
             <div>
               <h3>动画资源文件</h3>
               <p>
-                选中的动画 JSON 会随拓展包一并导出；拖入时请使用 .animation.json
-                或 .animations.json 后缀。
+                这里配置预制资源动画，选中的 JSON 会随拓展包一并导出；拖入时请使用
+                .animation.json 或 .animations.json 后缀。在线动画编辑与播放支持会在导出时自动生成，
+                不需要在这里添加文件，使用时需要新版自定义NPC主包。
               </p>
             </div>
             <Button icon="plus" onClick={() => files("animation")}>
@@ -716,7 +717,7 @@ export function ModelEditor({
             {...validation.field("AnimationList")}
             hint={
               syncAnimationList
-                ? "自动汇总已导入动画文件中的动画 ID，导出为 NPC 可选动画列表。"
+                ? "自动汇总已导入资源动画文件中的动画 ID，导出为 NPC 可选动画列表；此列表不是在线动画库。"
                 : "以下是文件中的全部动画，供实体动画下拉框选择；保存时保留上方的原列表。"
             }
           >
