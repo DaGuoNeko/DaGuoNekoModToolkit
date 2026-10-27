@@ -93,6 +93,16 @@ with zipfile.ZipFile(sys.argv[1]) as source,zipfile.ZipFile(sys.argv[2],'w') as 
   original=next(json.loads(source.read(n))['render_controllers'][primary] for n in names if n.startswith(resource_root+'/render_controllers/') and n.endswith('.json') and primary in json.loads(source.read(n)).get('render_controllers',{}))
   user_controller=json.loads(json.dumps(original));user_controller['uv_anim']={'offset':[0.25,0.5],'scale':[1.0,1.0]}
   description['render_controllers']=['controller.render.user_authored' if c==primary else c for c in description['render_controllers']]
+ if operation=='source_queries':
+  world_name=next(n for n in names if n.startswith(resource_root+'/entity/ex_dlcnpc/') and n.endswith('.json'))
+  world=json.loads(source.read(world_name));description=world['minecraft:client_entity']['description']
+  description.setdefault('scripts',{}).setdefault('initialize',[]).extend(value['initialize'])
+  behavior_name=next(n for n in names if '/entities/ex_dlcnpc/' in n and n.endswith('.json'))
+  behavior=json.loads(source.read(behavior_name))
+  behavior['minecraft:entity']['description'].setdefault('properties',{}).update(value.get('properties',{}))
+ if operation=='reserved_identifier':
+  original_identifier=config['npcmodelslist'][0]['identifier']
+  config['npcmodelslist'][0]['identifier']=value
  if operation in ('legacy','legacy_referenced_controller'):
   omitted={resource_root+'/'+p for p in support['generated_resources']}
   del config['online_animation_support']
@@ -110,6 +120,11 @@ with zipfile.ZipFile(sys.argv[1]) as source,zipfile.ZipFile(sys.argv[2],'w') as 
   data=source.read(item.filename)
   if item.filename==config_name:data=json.dumps(config).encode('utf-8')
   if referenced and item.filename==world_name:data=json.dumps(world).encode('utf-8')
+  if operation=='source_queries':
+   if item.filename==world_name:data=json.dumps(world).encode('utf-8')
+   if item.filename==behavior_name:data=json.dumps(behavior).encode('utf-8')
+  if operation=='reserved_identifier' and item.filename.endswith('.json'):
+   data=data.replace(original_identifier.encode('utf-8'),value.encode('utf-8'))
   target.writestr(item,data)
  if referenced:
   target.writestr(resource_root+'/render_controllers/customnpc_online_dlc/user_authored.render_controllers.json',json.dumps({'format_version':'1.8.0','render_controllers':{'controller.render.user_authored':user_controller}}))
@@ -496,4 +511,140 @@ test("model pages explain automatic online support independently of the legacy r
   assert.match(main, /新版自定义NPC主包/);
   assert.match(editor, /在线动画编辑与播放支持会在导出时自动生成/);
   assert.match(editor, /此列表不是在线动画库/);
+});
+
+test("missing has_property is false in isolated previews without altering authored world scripts", async (t) => {
+  const { f, backend } = await setup(t);
+  await backend.call("models.save", { index: -1, entry: model(f) });
+  const first = await backend.call("models.export", { directory: f.directory });
+  const archive = path.join(f.directory, "optional-property.zip");
+  const initialize = [
+    "variable.review_optional = query.has_property('review:optional');",
+    "variable.review_short = q.has_property('review:optional');",
+  ];
+  mutate(first.path, archive, "source_queries", { initialize });
+  await backend.call("models.import", { path: archive });
+  const rebuilt = inspect(
+    (await backend.call("models.export", { directory: f.directory })).path,
+  );
+  const profile = rebuilt.metadata.models["customnpc:online_model_dlcnpc"];
+  const descriptions = Object.values(rebuilt.json)
+    .map((entry) => entry["minecraft:client_entity"]?.description)
+    .filter(Boolean);
+  const preview = descriptions.find(
+    (entry) => entry.identifier === profile.preview_identifier,
+  );
+  const source = descriptions.find(
+    (entry) => entry.identifier === "customnpc:online_model_dlcnpc",
+  );
+  assert.ok(
+    preview.scripts.initialize.includes("variable.review_optional = (0.0);"),
+  );
+  assert.ok(
+    preview.scripts.initialize.includes("variable.review_short = (0.0);"),
+  );
+  for (const statement of initialize)
+    assert.ok(source.scripts.initialize.includes(statement));
+  assert.doesNotMatch(
+    JSON.stringify(preview),
+    /(?:query|q)\.(?:property|has_property)\(/,
+  );
+});
+
+test("declared property existence and defaults remain available to isolated previews", async (t) => {
+  const { f, backend } = await setup(t);
+  await backend.call("models.save", { index: -1, entry: model(f) });
+  const first = await backend.call("models.export", { directory: f.directory });
+  const archive = path.join(f.directory, "declared-property.zip");
+  mutate(first.path, archive, "source_queries", {
+    initialize: [
+      "variable.review_exists = query.has_property('review:declared');",
+      "variable.review_default = query.property('review:declared');",
+    ],
+    properties: { "review:declared": { type: "bool", default: true } },
+  });
+  await backend.call("models.import", { path: archive });
+  const rebuilt = inspect(
+    (await backend.call("models.export", { directory: f.directory })).path,
+  );
+  const profile = rebuilt.metadata.models["customnpc:online_model_dlcnpc"];
+  const preview = Object.values(rebuilt.json)
+    .map((entry) => entry["minecraft:client_entity"]?.description)
+    .find((entry) => entry?.identifier === profile.preview_identifier);
+  assert.ok(
+    preview.scripts.initialize.includes("variable.review_exists = (1.0);"),
+  );
+  assert.ok(
+    preview.scripts.initialize.includes("variable.review_default = (1.0);"),
+  );
+});
+
+test("property queries still reject missing definitions or missing defaults without mutating the project", async (t) => {
+  const { f, backend } = await setup(t);
+  await backend.call("models.save", { index: -1, entry: model(f) });
+  const first = await backend.call("models.export", { directory: f.directory });
+  for (const [name, properties] of [
+    ["missing_definition", {}],
+    ["missing_default", { "review:required": { type: "bool" } }],
+  ]) {
+    const archive = path.join(f.directory, `${name}.zip`);
+    mutate(first.path, archive, "source_queries", {
+      initialize: [
+        "variable.review_required = query.property('review:required');",
+      ],
+      properties,
+    });
+    await backend.call("models.import", { path: archive });
+    const before = await backend.call("state");
+    const files = (await fs.readdir(f.directory)).sort();
+    await assert.rejects(
+      backend.call("models.export", { directory: f.directory }),
+      /预览引用了没有实际默认值的属性: review:required/,
+    );
+    assert.deepEqual(await backend.call("state"), before);
+    assert.deepEqual((await fs.readdir(f.directory)).sort(), files);
+  }
+});
+
+test("reserved builtin IDs retained on import reject the whole export until the user explicitly changes ID", async (t) => {
+  const { f, backend } = await setup(t);
+  await backend.call("models.save", { index: -1, entry: model(f) });
+  await backend.call("models.save", {
+    index: -1,
+    entry: model(f, "safe_online_model"),
+  });
+  const first = await backend.call("models.export", { directory: f.directory });
+  const archive = path.join(f.directory, "legacy-builtin-id.zip");
+  mutate(first.path, archive, "reserved_identifier", "customnpc:cat_dlcnpc");
+  const imported = (await backend.call("models.import", { path: archive }))
+    .state;
+  assert.equal(imported.models[0].Identifier, "customnpc:cat_dlcnpc");
+  assert.equal(imported.models[0].OriginalIdentifier, "customnpc:cat_dlcnpc");
+  assert.equal(
+    imported.models[1].Identifier,
+    "customnpc:safe_online_model_dlcnpc",
+  );
+  const files = (await fs.readdir(f.directory)).sort();
+  await assert.rejects(
+    backend.call("models.export", { directory: f.directory }),
+    /内置模型.*customnpc:cat_dlcnpc.*修改.*ID.*新版自定义NPC主包/,
+  );
+  assert.deepEqual(await backend.call("state"), imported);
+  assert.deepEqual((await fs.readdir(f.directory)).sort(), files);
+
+  await backend.call("models.save", {
+    index: 0,
+    entry: {
+      ...imported.models[0],
+      CustomName: "migrated_legacy_cat",
+    },
+  });
+  const migrated = inspect(
+    (await backend.call("models.export", { directory: f.directory })).path,
+  );
+  assert.deepEqual(Object.keys(migrated.metadata.models).sort(), [
+    "customnpc:migrated_legacy_cat_dlcnpc",
+    "customnpc:safe_online_model_dlcnpc",
+  ]);
+  assert.ok(!Object.hasOwn(migrated.metadata.models, "customnpc:cat_dlcnpc"));
 });

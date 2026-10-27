@@ -44,6 +44,9 @@ namespace NpcSkinMaker
         {
             if (!Regex.IsMatch(owner, "^[a-z][a-z0-9_]*$"))
                 throw new InvalidDataException("在线动画包名必须为小写资源标识符: " + owner);
+            var modelIdentifiers = identifiers.Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal).ToList();
+            foreach (string identifier in modelIdentifiers) ValidateModelIdentifier(identifier);
             var geometries = ReadGeometries(resourceRoot);
             var clients = ReadDescriptions(Path.Combine(resourceRoot, "entity"), "minecraft:client_entity", resourceRoot);
             var behaviors = ReadDescriptions(Path.Combine(behaviorRoot, "entities"), "minecraft:entity", null);
@@ -64,7 +67,7 @@ namespace NpcSkinMaker
             var generated = new JArray();
             string driverPath = DriverDirectory + owner + ".animation.json";
             string controllerPath = ControllerDirectory + owner + ".render_controllers.json";
-            foreach (string identifier in identifiers.Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal))
+            foreach (string identifier in modelIdentifiers)
             {
                 if (!clients.TryGetValue(identifier, out var description))
                     throw new InvalidDataException("在线动画缺少最终资源包实体: " + identifier);
@@ -127,6 +130,14 @@ namespace NpcSkinMaker
                 new JProperty("owner_id", owner), new JProperty("generated_resources", generated));
             ExportText.Write(configPath, config.ToString(Formatting.Indented));
             Logger.Info("[模型] 已生成在线动画支持: " + manifestModels.Count + " 个模型（无 Python 依赖）");
+        }
+
+        internal static void ValidateModelIdentifier(string identifier)
+        {
+            // 导入可保留旧ID，但主包不能由拓展覆盖内置骨架；必须在打包前明确拒绝。
+            if (NpcCompatibility.IsReserved(identifier))
+                throw new InvalidDataException("模型使用自定义NPC内置模型 ID：" + identifier +
+                    "。导入会保留旧 ID；请在模型配置中修改为不与内置模型重复的新 ID，并使用支持模型动画注册的新版自定义NPC主包。");
         }
 
         private static Dictionary<string, JObject> ReadDescriptions(string folder, string type, string resourceRoot)
@@ -393,9 +404,12 @@ namespace NpcSkinMaker
             {
                 string name = match.Groups[3].Value;
                 var property = properties[name] as JObject;
+                // 存在检查不读取默认值；不存在的可选属性应为false，而不是阻止整包导出。
+                if (match.Groups[1].Value == "has_property")
+                    return property == null ? "(0.0)" : "(1.0)";
                 if (property == null || property["default"] == null || property["default"].Type == JTokenType.Null)
                     throw new InvalidDataException("预览引用了没有实际默认值的属性: " + name);
-                return match.Groups[1].Value == "has_property" ? "(1.0)" : "(" + PropertyLiteral(property["default"]) + ")";
+                return "(" + PropertyLiteral(property["default"]) + ")";
             }));
         }
 

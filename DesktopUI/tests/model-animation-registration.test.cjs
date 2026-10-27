@@ -64,6 +64,7 @@ initial = dict(MODEL_PROFILES)
 class Host(object):
     def __init__(self):
         self.NpcDlcModelsConfigNameList = set()
+        self.registered = []
         self.removed = []
     def API_RegisterAnimationModels(self, owner, manifest):
         return Registry.Register(self, owner, manifest)
@@ -71,6 +72,9 @@ class Host(object):
         return Registry.Unregister(self, owner)
     def _OnAnimationModelsUnregistered(self, models):
         self.removed.append(tuple(models))
+    def _OnAnimationModelsRegistered(self, models, report=True):
+        self.registered.append(tuple(models))
+        return True
 class BaseSystem(object):
     def __init__(self, namespace, name):
         self.listeners = []
@@ -106,15 +110,18 @@ client_cls = importlib.import_module(module + '.init_modnpcmodelsClientSystem').
 server_cls = importlib.import_module(module + '.init_modnpcmodelsServerSystem').init_modnpcmodelsServerSystem
 client, server = client_cls('test', 'client'), server_cls('test', 'server')
 client.OnScriptsReady({})
+Registry.Drain(hosts['Client'])
 assert configs[0] in hosts['Client'].NpcDlcModelsConfigNameList
 assert Data.GetProfile(model) is MODEL_PROFILES[model]
 assert NpcBoneIndex.MODEL_BONES[model] == tuple(b.lower() for b in profile['bones'])
 client.OnScriptsReady({})
 server.OnScriptsReady({})
+Registry.Drain(hosts['Server'])
 client.Destroy()
 assert model in MODEL_PROFILES, 'client cleanup must not remove server reference'
 assert not hosts['Client'].removed and not hosts['Server'].removed
 server.Destroy()
+Registry.Drain(hosts['Client']); Registry.Drain(hosts['Server'])
 assert model not in MODEL_PROFILES and model not in NpcBoneIndex.MODEL_BONES
 assert hosts['Client'].removed and hosts['Server'].removed
 assert MODEL_PROFILES == initial

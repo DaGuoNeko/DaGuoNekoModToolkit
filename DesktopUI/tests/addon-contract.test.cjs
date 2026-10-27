@@ -548,7 +548,7 @@ test("targeted model skins preserve actual IDs and target slots through ZIP and 
   assert.equal((await backend.call("state")).skins[0].Name, "狼皮肤");
 });
 
-test("legacy identifiers and render-array skin order survive model import", async (t) => {
+test("legacy builtin identifiers and skin order survive import/projects but require a new ID for export", async (t) => {
   const { f, backend } = await setup(t);
   const entry = model(f);
   entry.Textures.push({ Name: "另一张", Path: f.invalid });
@@ -577,10 +577,9 @@ with zipfile.ZipFile(sys.argv[1]) as source,zipfile.ZipFile(sys.argv[2],'w') as 
     await fs.readFile(imported.Textures[0].Path),
     await fs.readFile(f.invalid),
   );
-  const again = await backend.call("models.export", { directory: f.directory });
-  assert.equal(
-    config(again.path).npcmodelslist[0].identifier,
-    "customnpc:wolf_dlcnpc",
+  await assert.rejects(
+    backend.call("models.export", { directory: f.directory }),
+    /内置模型.*customnpc:wolf_dlcnpc.*修改.*ID/,
   );
   const project = path.join(f.directory, "legacy.dgnproject");
   await backend.call("project.save", { path: project });

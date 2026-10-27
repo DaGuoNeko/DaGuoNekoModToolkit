@@ -391,6 +391,7 @@ namespace NpcSkinMaker
                 string error;
                 if (!model.Validate(out error))
                     throw new Exception("模型「" + (model.DisplayName ?? (i + 1).ToString()) + "」无效: " + error);
+                ModelAnimationExporter.ValidateModelIdentifier(model.Identifier);
                 if (!identifiers.Add(model.Identifier))
                     throw new Exception("模型标识符重复: " + model.Identifier);
 
