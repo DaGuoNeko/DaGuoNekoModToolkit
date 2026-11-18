@@ -64,8 +64,8 @@ namespace NpcSkinMaker
                 }
                 if (geo == null) throw new InvalidDataException("模型 geometry 资源缺失: " + geometryId);
                 string material = (string)desc["materials"]?["default"];
-                if (material != "entity_alphatest")
-                    throw new InvalidDataException("当前导入不能自动转换自定义材质: " + identifier);
+                if (string.IsNullOrWhiteSpace(material))
+                    throw new InvalidDataException("模型缺少默认材质: " + identifier);
                 var textureMap = desc["textures"] as JObject ?? throw new InvalidDataException("模型缺少 textures");
                 var textures = new List<ModelTexture>();
                 for (int i = 0; i < 64; i++)

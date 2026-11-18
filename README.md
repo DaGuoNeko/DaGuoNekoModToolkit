@@ -2,7 +2,7 @@
 
 **DaGuoNeko Mod Toolkit** 是一款面向网易《我的世界》模组创作者的资源制作工具，用来整理皮肤、模型、贴图和音效，并导出可供配套模组使用的拓展包。
 
-当前版本：**3.3.0** · [下载软件](https://github.com/DaGuoNeko/DaGuoNekoModToolkit/releases/tag/v3.3.0) · [更新内容](CHANGELOG.md)
+当前版本：**3.3.1** · [下载软件](https://github.com/DaGuoNeko/DaGuoNekoModToolkit/releases/tag/v3.3.1) · [更新内容](CHANGELOG.md)
 
 通过可视化界面完成素材导入、预览、编辑和打包，减少手工整理文件与填写配置的步骤。
 

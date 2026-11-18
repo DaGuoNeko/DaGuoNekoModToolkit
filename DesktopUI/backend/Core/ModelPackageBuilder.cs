@@ -99,10 +99,11 @@ namespace NpcSkinMaker
                         catch (Exception ex) { Logger.Warning("[模型] 清空 sounds.json 失败: " + ex.Message); }
                     }
 
-                    // ④ 生成模型配置 JSON
+                    // ④ 处理模型并生成配置 JSON
                     var configList = new JArray();
-                    foreach (var m in models)
-                        configList.Add(JObject.FromObject(m.ToConfigItem()));
+                    foreach (var entry in models)
+                        configList.Add(ProcessModel(entry, bPath, rPath,
+                            bTemplates, bFallbackText, rTemplates, rFallbackData));
 
                     var configData = new JObject();
                     configData["npcmodelslist"] = configList;
@@ -114,11 +115,9 @@ namespace NpcSkinMaker
                         File.Move(oldConfig, newConfig);
                     Logger.Info("[模型] 写入模型配置: " + newConfig);
 
-                    // ⑤ 处理每个模型
+                    // ⑤ 导入的 sounds.json 复制完后，再补齐所有模型的默认音效。
                     foreach (var entry in models)
-                    {
-                        ProcessModel(entry, bPath, rPath, bTemplates, bFallbackText, rTemplates, rFallbackData);
-                    }
+                        InjectSounds(entry.Identifier, rPath);
 
                     // ⑥ 更新脚本
                     UpdateScripts(bPath, packageName, configFileName);
@@ -166,7 +165,7 @@ namespace NpcSkinMaker
             WriteJson(manifestPath, data);
         }
 
-        private void ProcessModel(ModelEntry entry, string bPath, string rPath,
+        private JObject ProcessModel(ModelEntry entry, string bPath, string rPath,
             Dictionary<string, string> bTemplates, string bFallbackText,
             Dictionary<string, JObject> rTemplates, JObject rFallbackData)
         {
@@ -203,12 +202,7 @@ namespace NpcSkinMaker
             BuildBehaviorEntity(entry, entityId, bPath, bTmplText);
 
             // ② 资源包实体（深拷贝）
-            BuildResourceEntity(entry, entityId, rPath, (JObject)rTmplData.DeepClone());
-
-            BuildRenderController(entry, entityId, rPath);
-
-            // ③ sounds.json 注入
-            InjectSounds(entry.Identifier, rPath);
+            var textureAliases = BuildResourceEntity(entry, entityId, rPath, (JObject)rTmplData.DeepClone());
 
             // ③ 贴图
             string texDir = Path.Combine(rPath, "textures", "entity", "npc_dlcnpc", entityId);
@@ -257,6 +251,17 @@ namespace NpcSkinMaker
             geoContent = regex.Replace(geoContent, "\"identifier\": \"geometry." + entityId + "\"", 1);
             Utils.WriteTextFile(dstGeo, geoContent);
             Logger.Info("[模型]   复制并修改模型文件: " + Path.GetFileName(entry.GeoPath) + " -> " + entityId + ".geo.json");
+
+            var config = JObject.FromObject(entry.ToConfigItem());
+            var textureNames = new string[entry.Textures.Count];
+            for (int i = 0; i < textureNames.Length; i++)
+            {
+                string alias = textureAliases[i];
+                int index = alias == "default" ? 0 : int.Parse(alias.Substring("default".Length));
+                textureNames[index] = entry.Textures[i].Name ?? "";
+            }
+            config["_toolkit"]["texture_names"] = new JArray(textureNames);
+            return config;
         }
 
         private void BuildBehaviorEntity(ModelEntry entry, string entityId, string bPath, string tmplText)
@@ -266,7 +271,8 @@ namespace NpcSkinMaker
             data["description"]["identifier"] = entry.Identifier;
             var properties = data["description"]["properties"] as JObject ?? new JObject();
             foreach (var property in NpcCompatibility.Properties.Properties())
-                properties[property.Name] = property.Value;
+                if (string.IsNullOrEmpty(entry.ImportedBehaviorPath) || properties[property.Name] == null)
+                    properties[property.Name] = property.Value;
             data["description"]["properties"] = properties;
             var groups = data["component_groups"] as JObject ?? new JObject();
             if (!(groups["collision_box"] is JObject)) groups["collision_box"] = new JObject();
@@ -281,42 +287,50 @@ namespace NpcSkinMaker
             Logger.Info("[模型]   写出行为包实体: " + entityId);
         }
 
-        private void BuildResourceEntity(ModelEntry entry, string entityId, string rPath, JObject data)
+        private List<string> BuildResourceEntity(ModelEntry entry, string entityId, string rPath, JObject data)
         {
             var desc = data["minecraft:client_entity"]["description"] as JObject;
 
             // 标识符
             desc["identifier"] = entry.Identifier;
-            desc["materials"] = new JObject(
-                new JProperty("default", "entity_alphatest"),
-                new JProperty("default_customnpc_alpha", "customnpc_tint_entity_alphatest"),
-                new JProperty("outline", "netease_entity_alphatest_outline"),
-                new JProperty("outline_through_wall", "customnpc_entity_alphatest_outline_through_wall"),
-                new JProperty("outline_mask_through_wall", "customnpc_entity_alphatest_outline_mask_through_wall"));
+            var textureAliases = Enumerable.Range(0, entry.Textures.Count)
+                .Select(i => i == 0 ? "default" : "default" + i).ToList();
+            bool imported = !string.IsNullOrEmpty(entry.ImportedClientEntityPath);
+            var textures = new JObject();
+            if (imported)
+            {
+                // 原材质和控制器继续引用旧包资源。重新绑定编辑器可管理的皮肤。
+                textureAliases = ImportedSkinAliases(entry, entityId, rPath, desc, textureAliases);
+                foreach (var texture in ((JObject)desc["textures"]).Properties())
+                    if (!Regex.IsMatch(texture.Name, @"^default\d*$"))
+                        textures[texture.Name] = texture.Value;
+            }
+            else
+            {
+                desc["materials"] = new JObject(
+                    new JProperty("default", "entity_alphatest"),
+                    new JProperty("default_customnpc_alpha", "customnpc_tint_entity_alphatest"),
+                    new JProperty("outline", "netease_entity_alphatest_outline"),
+                    new JProperty("outline_through_wall", "customnpc_entity_alphatest_outline_through_wall"),
+                    new JProperty("outline_mask_through_wall", "customnpc_entity_alphatest_outline_mask_through_wall"));
+                textures["outline_mask"] = "textures/blocks/white_concrete";
+                desc["render_controllers"] = new JArray(
+                    "controller.render." + entityId,
+                    new JObject(new JProperty("controller.render.customnpc_outline_mask_through_wall",
+                        "query.property('customnpc:outline_enabled') && query.property('customnpc:outline_through_wall')")),
+                    new JObject(new JProperty("controller.render.customnpc_outline",
+                        "query.property('customnpc:outline_enabled')")));
+                BuildRenderController(entry, entityId, rPath);
+            }
 
             // 几何模型
             var geo = new JObject();
             geo["default"] = "geometry." + entityId;
             desc["geometry"] = geo;
 
-            // 贴图：default / default1 / default2 ...
-            var textures = new JObject();
             for (int i = 0; i < entry.Textures.Count; i++)
-            {
-                string key = i == 0 ? "default" : "default" + i;
-                textures[key] = "textures/entity/npc_dlcnpc/" + entityId + "/texture_" + i;
-            }
+                textures[textureAliases[i]] = "textures/entity/npc_dlcnpc/" + entityId + "/texture_" + i;
             desc["textures"] = textures;
-            textures["outline_mask"] = "textures/blocks/white_concrete";
-
-            // 渲染控制器
-            var rcArr = new JArray();
-            rcArr.Add("controller.render." + entityId);
-            rcArr.Add(new JObject(new JProperty("controller.render.customnpc_outline_mask_through_wall",
-                "query.property('customnpc:outline_enabled') && query.property('customnpc:outline_through_wall')")));
-            rcArr.Add(new JObject(new JProperty("controller.render.customnpc_outline",
-                "query.property('customnpc:outline_enabled')")));
-            desc["render_controllers"] = rcArr;
 
             // 动画
             var anims = desc["animations"] as JObject;
@@ -340,6 +354,51 @@ namespace NpcSkinMaker
             if (!Directory.Exists(dstDir)) Directory.CreateDirectory(dstDir);
             WriteJson(Path.Combine(dstDir, entityId + ".entity.json"), data);
             Logger.Info("[模型]   写出资源包实体: " + entityId);
+            return textureAliases;
+        }
+
+        private List<string> ImportedSkinAliases(ModelEntry entry, string entityId, string rPath,
+            JObject description, List<string> availableAliases)
+        {
+            var primary = (description["render_controllers"] as JArray)?.FirstOrDefault(
+                controller => controller.Type == JTokenType.String);
+            string name = (string)primary;
+            JObject source = null;
+            string formatVersion = "1.8.0";
+            if (name != null)
+                foreach (var resource in entry.AdditionalResources ?? new List<ModelResource>())
+                {
+                    string path = resource.RelativePath.Replace('\\', '/');
+                    if (!path.StartsWith("render_controllers/") || !path.EndsWith(".json")) continue;
+                    var file = ReadJson(resource.Path);
+                    source = file["render_controllers"]?[name] as JObject;
+                    if (source == null) continue;
+                    formatVersion = (string)file["format_version"] ?? formatVersion;
+                    break;
+                }
+            if (source == null && name != null) source = NpcCompatibility.RenderController(name);
+            var skins = source?["arrays"]?["textures"]?["Array.skinid"] as JArray
+                ?? throw new InvalidDataException("找不到导入模型的皮肤数组: " + entry.Identifier);
+            var originalAliases = skins.Values<string>().Select(alias => alias.Substring("Texture.".Length)).ToList();
+            if (originalAliases.Count == availableAliases.Count && originalAliases.All(availableAliases.Contains))
+                return originalAliases;
+
+            var aliases = originalAliases.Where(availableAliases.Contains)
+                .Concat(availableAliases.Except(originalAliases)).ToList();
+            var controller = (JObject)source.DeepClone();
+            controller["arrays"]["textures"]["Array.skinid"] = new JArray(aliases.Select(alias => "Texture." + alias));
+            foreach (var texture in (controller["textures"] as JArray ?? new JArray()).OfType<JValue>())
+                if (texture.Type == JTokenType.String && Regex.IsMatch((string)texture,
+                    @"^Array\.skinid\[math\.clamp\(query\.skin_id,\s*0,\s*\d+\)\]$"))
+                    texture.Value = "Array.skinid[math.clamp(query.skin_id, 0, " + (aliases.Count - 1) + ")]";
+
+            // 克隆后只让这个模型引用它，避免改动其它模型共享的源控制器。
+            string updatedName = "controller.render." + entityId + ".toolkit_skins";
+            primary.Replace(new JValue(updatedName));
+            WriteJson(Path.Combine(rPath, "render_controllers", entityId + ".toolkit_skins.render_controllers.json"),
+                new JObject(new JProperty("format_version", formatVersion),
+                    new JProperty("render_controllers", new JObject(new JProperty(updatedName, controller)))));
+            return aliases;
         }
 
         /// <summary>生成包内独立渲染控制器，支持当前模型的任意合法贴图数量。</summary>

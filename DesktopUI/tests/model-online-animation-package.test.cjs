@@ -435,9 +435,8 @@ test("referenced user controllers in online directories remain usable for import
       .render_controllers["controller.render.user_authored"];
     assert.deepEqual(authored.uv_anim.offset, [0.25, 0.5]);
 
-    // The normal builder intentionally rebuilds its primary controller. Also
-    // exercise the final-resource exporter directly so that its preview must
-    // actually resolve the user's referenced controller, not an unused asset.
+    // Exercise the final-resource exporter directly as well as the normal
+    // package path, resolving the actual controller referenced by the preview.
     const final = await exportFinalResources(f, archive, variant);
     const config = JSON.parse(await fs.readFile(final.config, "utf8"));
     const controllerFile =
@@ -475,6 +474,21 @@ test("referenced user controllers in online directories remain usable for import
       ),
       variant,
     );
+    const rebuiltEntities = Object.values(rebuiltData.json)
+      .map((data) => data["minecraft:client_entity"]?.description)
+      .filter(Boolean);
+    const rebuiltWorld = rebuiltEntities.find(
+      (entity) => entity.identifier === "customnpc:online_model_dlcnpc",
+    );
+    assert.ok(rebuiltWorld.render_controllers.includes("controller.render.user_authored"), variant);
+    const rebuiltPreview = rebuiltEntities.find(
+      (entity) => entity.identifier === rebuiltData.metadata.models[rebuiltWorld.identifier].preview_identifier,
+    );
+    const rebuiltPreviewControllers = Object.assign(
+      {}, ...Object.values(rebuiltData.json).map((data) => data.render_controllers || {}),
+    );
+    const rebuiltPreviewPrimary = rebuiltPreview.render_controllers.find((entry) => typeof entry === "string");
+    assert.deepEqual(rebuiltPreviewControllers[rebuiltPreviewPrimary].uv_anim, authored.uv_anim, variant);
   }
 });
 
